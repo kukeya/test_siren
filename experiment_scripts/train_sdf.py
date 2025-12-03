@@ -11,7 +11,10 @@ import dataio, utils, training, loss_functions, modules
 
 from torch.utils.data import DataLoader
 import configargparse
+import gpu_utils
 
+
+gpu_utils.auto_select_gpu()
 
 p = configargparse.ArgumentParser()
 p.add_argument('-c', '--config_filepath', required=False, is_config_file=True, help='Path to config file.')
@@ -37,6 +40,13 @@ p.add_argument('--point_cloud_path', type=str, default='ruyi14w_n_deformed.xyz',
                help='Path to the point cloud file.')
 
 p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained model.')
+
+# Loss weights
+p.add_argument('--sdf_weight', type=float, default=3e4, help='Weight for SDF loss')
+p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter loss')
+p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
+p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
+
 opt = p.parse_args()
 
 
@@ -63,7 +73,12 @@ if opt.checkpoint_path is not None:
 model.cuda()
 
 # Define the loss 
-loss_fn = loss_functions.sdf
+from functools import partial
+loss_fn = partial(loss_functions.sdf, 
+                  sdf_weight=opt.sdf_weight, 
+                  inter_weight=opt.inter_weight, 
+                  normal_weight=opt.normal_weight, 
+                  grad_weight=opt.grad_weight)
 summary_fn = utils.write_sdf_summary
 
 root_path = os.path.join(opt.logging_root, opt.experiment_name)

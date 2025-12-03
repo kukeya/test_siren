@@ -108,3 +108,23 @@ fi
 conda deactivate
 
 conda activate igr
+
+
+
+python experiment_scripts/train_sdf.py \
+        --batch_size 50000 \
+        --num_epochs 5000 \
+        --point_cloud_path "mesh/ruyi.xyz" \
+        --experiment_name "original" \
+        --epochs_til_ckpt 1000 \
+        --steps_til_summary 1000 \
+        --hidden_features 512 \
+        --num_hidden_layers 5
+
+
+python experiment_scripts/test_sdf.py \
+        --checkpoint_path "logs/original/checkpoints/model_final.pth" \
+        --experiment_name "original_rc" \
+        --hidden_features 512 \
+        --num_hidden_layers 5
+

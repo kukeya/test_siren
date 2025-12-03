@@ -17,17 +17,17 @@ class PointCloud(Dataset):
 
         # Reshape point cloud such that it lies in bounding box of (-1, 1) (distorts geometry, but makes for high
         # sample efficiency)
-        # coords -= np.mean(coords, axis=0, keepdims=True)
-        # if keep_aspect_ratio:
-        #     coord_max = np.amax(coords)
-        #     coord_min = np.amin(coords)
-        # else:
-        #     coord_max = np.amax(coords, axis=0, keepdims=True)
-        #     coord_min = np.amin(coords, axis=0, keepdims=True)
+        coords -= np.mean(coords, axis=0, keepdims=True)
+        if keep_aspect_ratio:
+            coord_max = np.amax(coords)
+            coord_min = np.amin(coords)
+        else:
+            coord_max = np.amax(coords, axis=0, keepdims=True)
+            coord_min = np.amin(coords, axis=0, keepdims=True)
 
-        # self.coords = (coords - coord_min) / (coord_max - coord_min)
-        # self.coords -= 0.5
-        # self.coords *= 2.
+        self.coords = (coords - coord_min) / (coord_max - coord_min)
+        self.coords -= 0.5
+        self.coords *= 2.
 
         self.on_surface_points = on_surface_points  # batch size的长度
 

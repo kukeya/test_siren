@@ -7,14 +7,28 @@ import os
 import torch
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio, utils, training, loss_functions, modules
-
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+import dataio, utils, training, loss_functions, modules
 import configargparse
-import gpu_utils
+# import gpu_utils
 
+local_rank = int(os.environ.get("LOCAL_RANK", -1))
+is_ddp = local_rank != -1
+if is_ddp:
+    # 初始化进程组
+    dist.init_process_group(backend="nccl")
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+else:
+    # 单卡回退逻辑
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-gpu_utils.auto_select_gpu()
+# gpu_utils.auto_select_gpu()
 
 p = configargparse.ArgumentParser()
 p.add_argument('-c', '--config_filepath', required=False, is_config_file=True, help='Path to config file.')
@@ -55,7 +69,16 @@ opt = p.parse_args()
 
 
 sdf_dataset = dataio.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size)
-dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+
+if is_ddp:
+    # 使用 DistributedSampler
+    sampler = DistributedSampler(sdf_dataset, shuffle=True)
+    # 注意: shuffle 必须为 False，因为 sampler 会处理 shuffle
+    dataloader = DataLoader(sdf_dataset, shuffle=False, batch_size=1, pin_memory=True, num_workers=4, sampler=sampler)
+else:
+    dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=4)
+
+# dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
 
 # Define the model.
 # if opt.model_type == 'nerf':
@@ -78,7 +101,11 @@ if opt.checkpoint_path is not None:
         model.load_state_dict(checkpoint) # 兼容只保存了 state_dict 的情况
     print(f"Loaded checkpoint from {opt.checkpoint_path}")
 
-model.cuda()
+# model.cuda()
+model.to(device)
+if is_ddp:
+    # 包装模型
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank)
 
 # Define the loss 
 from functools import partial

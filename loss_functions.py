@@ -2,7 +2,7 @@ import torch
 import diff_operators
 import torch.nn.functional as F
 
-def sdf(model_output, gt, sdf_weight=3e4, inter_weight=1e2, normal_weight=1e2, grad_weight=5e1):
+def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, grad_weight=5e1):
     '''
        x: batch of input coordinates
        y: usually the output of the trial_soln function
@@ -23,7 +23,7 @@ def sdf(model_output, gt, sdf_weight=3e4, inter_weight=1e2, normal_weight=1e2, g
     grad_constraint = torch.abs(gradient.norm(dim=-1) - 1)
     # Exp      # Lapl
     # -----------------
-    return {'sdf': (sdf_constraint ** 2).mean() * sdf_weight,  
+    return {'sdf': torch.abs(sdf_constraint).mean() * sdf_weight,  
             'inter': inter_constraint.mean() * inter_weight, 
             'normal_constraint': normal_constraint.mean() * normal_weight,
             'grad_constraint': grad_constraint.mean() * grad_weight}

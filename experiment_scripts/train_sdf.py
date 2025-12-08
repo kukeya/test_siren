@@ -5,9 +5,15 @@
 import sys
 import os
 import torch
+import warnings
+
+# 忽略 RTX 5090 兼容性警告
+warnings.filterwarnings("ignore", message=".*NVIDIA GeForce RTX 5090.*")
+
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio, utils, training, loss_functions, modules
+import dataio, utils, training, loss_functions_adpt_weight, modules
+# import loss_functions
 
 from torch.utils.data import DataLoader
 import configargparse
@@ -47,15 +53,16 @@ p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
 
-p.add_argument('--hidden_features', type=int, default=50, help='Number of hidden features in the model')
-p.add_argument('--num_hidden_layers', type=int, default=5, help='Number of hidden layers in the model')
+p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
+p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
 
 
 opt = p.parse_args()
 
 
 sdf_dataset = dataio.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size)
-dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+# dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=4)
 
 # Define the model.
 # if opt.model_type == 'nerf':
@@ -82,7 +89,7 @@ model.cuda()
 
 # Define the loss 
 from functools import partial
-loss_fn = partial(loss_functions.sdf, 
+loss_fn = partial(loss_functions_adpt_weight.sdf, 
                   sdf_weight=opt.sdf_weight, 
                   inter_weight=opt.inter_weight, 
                   normal_weight=opt.normal_weight, 

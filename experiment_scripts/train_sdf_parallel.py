@@ -13,7 +13,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-import dataio, utils, training, loss_functions, modules
+import dataio, utils, modules, training_parallel, loss_functions_adpt_weight
 import configargparse
 # import gpu_utils
 
@@ -61,7 +61,7 @@ p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
 
-p.add_argument('--hidden_features', type=int, default=50, help='Number of hidden features in the model')
+p.add_argument('--hidden_features', type=int, default=512, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=5, help='Number of hidden layers in the model')
 
 
@@ -109,16 +109,17 @@ if is_ddp:
 
 # Define the loss 
 from functools import partial
-loss_fn = partial(loss_functions.sdf, 
+loss_fn = partial(loss_functions_adpt_weight.sdf, 
                   sdf_weight=opt.sdf_weight, 
                   inter_weight=opt.inter_weight, 
-                  normal_weight=opt.normal_weight, 
+                  normal_weight=opt.normal_weight,
                   grad_weight=opt.grad_weight)
 summary_fn = utils.write_sdf_summary
 
 root_path = os.path.join(opt.logging_root, opt.experiment_name)
 
-training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
+training_parallel.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True)
+               clip_grad=True,
+               train_sampler=sampler if is_ddp else None)

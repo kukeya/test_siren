@@ -21,10 +21,17 @@ def auto_select_gpu(min_memory_mb=8000):
         lines = result.strip().split('\n')
         
         candidates = []
+        blacklist = {7} # GPU 7 is hardware faulty
         for i, line in enumerate(lines):
-            mem_free, util = map(int, line.split(','))
-            if mem_free >= min_memory_mb:
-                candidates.append((i, mem_free, util))
+            if i in blacklist:
+                continue
+            try:
+                mem_free, util = map(int, line.split(','))
+                if mem_free >= min_memory_mb:
+                    candidates.append((i, mem_free, util))
+            except ValueError:
+                # Skip GPUs that return invalid data (e.g. ERR!)
+                continue
         
         if not candidates:
             print(f"No GPU found with > {min_memory_mb} MB free memory. Fallback to max memory strategy.")

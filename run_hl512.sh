@@ -6,7 +6,7 @@ conda activate m_siren
 
 
 MODE="all"
-RECUR_NUMBER=14
+RECUR_NUMBER=11
 EPOCH=1000
 
 while [[ $# -gt 0 ]]; do
@@ -33,7 +33,7 @@ if [[ ! "$MODE" =~ ^(train|test|all|origin)$ ]]; then
     exit 1
 fi
 
-ROOT_NAME="exp05_ds24_w"
+ROOT_NAME="exp06_hl512"
 EXP_NAME="${ROOT_NAME}_${RECUR_NUMBER}"
 
 echo "运行模式: $MODE"
@@ -41,12 +41,15 @@ echo "运行模式: $MODE"
 if [[ "$MODE" == "train" || "$MODE" == "all" ]]; then
     # train
     python experiment_scripts/train_sdf.py \
-        --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed.xyz" \
+        --batch_size 20000 \
+        --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz" \
         --experiment_name "${EXP_NAME}" \
         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth" \
         --num_epochs $EPOCH \
         --epochs_til_ckpt 500 \
-        --steps_til_summary 500
+        --steps_til_summary 500 \
+        --hidden_features 512 \
+        --num_hidden_layers 5
 
 
     if [ -d "logs/${EXP_NAME}" ]; then
@@ -61,8 +64,9 @@ if [[ "$MODE" == "test" || "$MODE" == "all" ]]; then
     # test script for experiment
     python experiment_scripts/test_sdf.py \
         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME}/checkpoints/model_final.pth" \
-        --experiment_name "${EXP_NAME}_rc"
-
+        --experiment_name "${EXP_NAME}_rc" \
+        --hidden_features 512 \
+        --num_hidden_layers 5
 
     if [ -d "logs/${EXP_NAME}_rc" ]; then
         rm -rf "logs/${ROOT_NAME}/${EXP_NAME}_rc"
@@ -120,10 +124,20 @@ conda activate igr
 #         --steps_til_summary 1000 \
 #         --hidden_features 512 \
 #         --num_hidden_layers 5
-
+# python experiment_scripts/train_sdf.py \
+#     --batch_size 15000 \
+#     --num_epochs 1000 \
+#     --point_cloud_path "mesh/exp06_hl512/ruyi_recur21_n_deformed_w.xyz" \
+#     --experiment_name "exp06_hl512" \
+#     --checkpoint_path "logs/exp06_hl512/exp06_hl512_20/checkpoints/model_final.pth" \
+#     --epochs_til_ckpt 500 \
+#     --steps_til_summary 500 \
+#     --hidden_features 512 \
+#     --num_hidden_layers 5
 
 # python experiment_scripts/test_sdf.py \
 #         --checkpoint_path "logs/original/checkpoints/model_final.pth" \
 #         --experiment_name "original_rc" \
 #         --hidden_features 512 \
 #         --num_hidden_layers 5
+

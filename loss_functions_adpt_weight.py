@@ -25,7 +25,11 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
     grad_constraint = torch.abs(gradient.norm(dim=-1) - 1)
     
     # [修改] 应用权重到 sdf_constraint
-    weighted_sdf_constraint = torch.abs(sdf_constraint) * weights
+    # 注意：weights 形状可能需要广播，这里假设它是 (batch, 1)
+    wc = sdf_constraint
+    weighted_sdf_constraint = torch.where(weights > 1.0,
+                                          torch.abs(wc),
+                                          (wc ** 2) * weights)
 
     # Exp      # Lapl
     # -----------------

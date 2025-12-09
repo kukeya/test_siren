@@ -12,22 +12,32 @@ class PointCloud(Dataset):
         print("Finished loading point cloud")
 
         coords = point_cloud[:, :3]
-        self.normals = point_cloud[:, 3:]
+        self.normals = point_cloud[:, 3:6]
         self.coords = coords
+
+        # [新增] 读取权重列 (如果存在)
+        # 假设 point_cloud 格式为: x y z nx ny nz [weight]
+        # 如果只有 6 列，则默认权重为 1
+        if point_cloud.shape[1] > 6:
+            self.weights = point_cloud[:, 6:7]
+            print(f"检测到权重列，范围: [{self.weights.min()}, {self.weights.max()}]")
+        else:
+            self.weights = np.ones((coords.shape[0], 1))
+            print("未检测到权重列，默认权重为 1")
 
         # Reshape point cloud such that it lies in bounding box of (-1, 1) (distorts geometry, but makes for high
         # sample efficiency)
-        coords -= np.mean(coords, axis=0, keepdims=True)
-        if keep_aspect_ratio:
-            coord_max = np.amax(coords)
-            coord_min = np.amin(coords)
-        else:
-            coord_max = np.amax(coords, axis=0, keepdims=True)
-            coord_min = np.amin(coords, axis=0, keepdims=True)
+        # coords -= np.mean(coords, axis=0, keepdims=True)
+        # if keep_aspect_ratio:
+        #     coord_max = np.amax(coords)
+        #     coord_min = np.amin(coords)
+        # else:
+        #     coord_max = np.amax(coords, axis=0, keepdims=True)
+        #     coord_min = np.amin(coords, axis=0, keepdims=True)
 
-        self.coords = (coords - coord_min) / (coord_max - coord_min)
-        self.coords -= 0.5
-        self.coords *= 2.
+        # self.coords = (coords - coord_min) / (coord_max - coord_min)
+        # self.coords -= 0.5
+        # self.coords *= 2.
 
         self.on_surface_points = on_surface_points  # batch size的长度
 

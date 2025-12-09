@@ -7,7 +7,10 @@ conda activate m_siren
 
 MODE="all"
 RECUR_NUMBER=14
-EPOCH=1000
+# === 设置两个不同的 Epoch ===
+EPOCH_1=1000
+EPOCH_2=3000
+# =========================
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,74 +36,96 @@ if [[ ! "$MODE" =~ ^(train|test|all|origin)$ ]]; then
     exit 1
 fi
 
-ROOT_NAME="exp05_ds24"
-EXP_NAME="${ROOT_NAME}_${RECUR_NUMBER}"
+ROOT_NAME="exp05_ds24_w"
+# 基础实验名
+BASE_EXP_NAME="${ROOT_NAME}_${RECUR_NUMBER}"
 
 echo "运行模式: $MODE"
 
 if [[ "$MODE" == "train" || "$MODE" == "all" ]]; then
-    # train
-    python experiment_scripts/train_sdf.py \
-        --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed.xyz" \
-        --experiment_name "${EXP_NAME}" \
-        --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth" \
-        --num_epochs $EPOCH \
-        --epochs_til_ckpt 500 \
-        --steps_til_summary 500
+    # 定义两个实验的具体名称
+    EXP_NAME_1="${BASE_EXP_NAME}_ep${EPOCH_1}"
+    EXP_NAME_2="${BASE_EXP_NAME}_ep${EPOCH_2}"
 
+    echo "开始并行训练..."
+    echo "任务 1: ${EXP_NAME_1} (Epochs: ${EPOCH_1}) on GPU 0"
+    echo "任务 2: ${EXP_NAME_2} (Epochs: ${EPOCH_2}) on GPU 1"
 
-    if [ -d "logs/${EXP_NAME}" ]; then
-        rm -rf "logs/${ROOT_NAME}/${EXP_NAME}"
-        mv "logs/${EXP_NAME}" "logs/${ROOT_NAME}/${EXP_NAME}"
-    else
-        echo "警告: logs/${EXP_NAME} 不存在,跳过移动"
+    # train 1 (GPU 0)
+    CUDA_VISIBLE_DEVICES=0 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --experiment_name "${EXP_NAME_1}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_1         --epochs_til_ckpt 500         --steps_til_summary 500 &
+
+    # train 2 (GPU 1)
+    CUDA_VISIBLE_DEVICES=1 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --experiment_name "${EXP_NAME_2}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_2         --epochs_til_ckpt 500         --steps_til_summary 500 &
+
+    # 等待所有后台任务完成
+    wait
+    echo "训练完成，整理日志..."
+
+    # 移动日志 1
+    if [ -d "logs/${EXP_NAME_1}" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
+        rm -rf "logs/${ROOT_NAME}/${EXP_NAME_1}"
+        mv "logs/${EXP_NAME_1}" "logs/${ROOT_NAME}/${EXP_NAME_1}"
+    fi
+
+    # 移动日志 2
+    if [ -d "logs/${EXP_NAME_2}" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
+        rm -rf "logs/${ROOT_NAME}/${EXP_NAME_2}"
+        mv "logs/${EXP_NAME_2}" "logs/${ROOT_NAME}/${EXP_NAME_2}"
     fi
 fi
 
 if [[ "$MODE" == "test" || "$MODE" == "all" ]]; then
-    # test script for experiment
-    python experiment_scripts/test_sdf.py \
-        --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME}/checkpoints/model_final.pth" \
-        --experiment_name "${EXP_NAME}_rc"
+    EXP_NAME_1="${BASE_EXP_NAME}_ep${EPOCH_1}"
+    EXP_NAME_2="${BASE_EXP_NAME}_ep${EPOCH_2}"
+    
+    echo "开始并行测试..."
 
+    # test 1 (GPU 0)
+    CUDA_VISIBLE_DEVICES=0 python experiment_scripts/test_sdf.py         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME_1}/checkpoints/model_final.pth"         --experiment_name "${EXP_NAME_1}_rc" &
 
-    if [ -d "logs/${EXP_NAME}_rc" ]; then
-        rm -rf "logs/${ROOT_NAME}/${EXP_NAME}_rc"
-        mv "logs/${EXP_NAME}_rc" "logs/${ROOT_NAME}/${EXP_NAME}_rc"
-    else
-        echo "警告: logs/${EXP_NAME}_rc 不存在,跳过移动"
+    # test 2 (GPU 1)
+    CUDA_VISIBLE_DEVICES=1 python experiment_scripts/test_sdf.py         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME_2}/checkpoints/model_final.pth"         --experiment_name "${EXP_NAME_2}_rc" &
+
+    wait
+    echo "测试完成，整理日志..."
+
+    # 移动测试日志 1
+    if [ -d "logs/${EXP_NAME_1}_rc" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
+        rm -rf "logs/${ROOT_NAME}/${EXP_NAME_1}_rc"
+        mv "logs/${EXP_NAME_1}_rc" "logs/${ROOT_NAME}/${EXP_NAME_1}_rc"
+    fi
+
+    # 移动测试日志 2
+    if [ -d "logs/${EXP_NAME_2}_rc" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
+        rm -rf "logs/${ROOT_NAME}/${EXP_NAME_2}_rc"
+        mv "logs/${EXP_NAME_2}_rc" "logs/${ROOT_NAME}/${EXP_NAME_2}_rc"
     fi
 fi
 
 if [[ "$MODE" == "origin" ]]; then
+    EXP_NAME="${BASE_EXP_NAME}_origin"
     echo "从原始 checkpoint 开始训练..."
     # train from origin
-    python experiment_scripts/train_sdf.py \
-        --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur0_n_deformed.xyz" \
-        --experiment_name "${EXP_NAME}" \
-        --checkpoint_path "logs/origin/checkpoints/model_final.pth" \
-        --num_epochs $EPOCH \
-        --epochs_til_ckpt 500 \
-        --steps_til_summary 500
+    python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur0_n_deformed.xyz"         --experiment_name "${EXP_NAME}"         --checkpoint_path "logs/origin/checkpoints/model_final.pth"         --num_epochs $EPOCH_1         --epochs_til_ckpt 500         --steps_til_summary 500
 
     if [ -d "logs/${EXP_NAME}" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
         rm -rf "logs/${ROOT_NAME}/${EXP_NAME}"
         mv "logs/${EXP_NAME}" "logs/${ROOT_NAME}/${EXP_NAME}"
-    else
-        echo "警告: logs/${EXP_NAME} 不存在,跳过移动"
     fi
 
     echo "开始测试..."
     # test
-    python experiment_scripts/test_sdf.py \
-        --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME}/checkpoints/model_final.pth" \
-        --experiment_name "${EXP_NAME}_rc"
+    python experiment_scripts/test_sdf.py         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME}/checkpoints/model_final.pth"         --experiment_name "${EXP_NAME}_rc"
 
     if [ -d "logs/${EXP_NAME}_rc" ]; then
+        mkdir -p "logs/${ROOT_NAME}"
         rm -rf "logs/${ROOT_NAME}/${EXP_NAME}_rc"
         mv "logs/${EXP_NAME}_rc" "logs/${ROOT_NAME}/${EXP_NAME}_rc"
-    else
-        echo "警告: logs/${EXP_NAME}_rc 不存在,跳过移动"
     fi
 fi
 
@@ -110,21 +135,5 @@ conda deactivate
 conda activate igr
 
 
-
-python experiment_scripts/train_sdf.py \
-        --batch_size 50000 \
-        --num_epochs 5000 \
-        --point_cloud_path "mesh/ruyi.xyz" \
-        --experiment_name "original" \
-        --epochs_til_ckpt 1000 \
-        --steps_til_summary 1000 \
-        --hidden_features 512 \
-        --num_hidden_layers 5
-
-
-python experiment_scripts/test_sdf.py \
-        --checkpoint_path "logs/original/checkpoints/model_final.pth" \
-        --experiment_name "original_rc" \
-        --hidden_features 512 \
-        --num_hidden_layers 5
-
+    # python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/exp05_ds24/ruyi_recur88_n_deformed.xyz"         --experiment_name exp07_retrain_2         --num_epochs 3000         --epochs_til_ckpt 500         --steps_til_summary 500
+    # python experiment_scripts/test_sdf.py         --checkpoint_path "logs/exp07_retrain/checkpoints/model_final.pth"         --experiment_name "exp07_retrain_rc"

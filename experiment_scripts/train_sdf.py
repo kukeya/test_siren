@@ -5,9 +5,15 @@
 import sys
 import os
 import torch
+import warnings
+
+# 忽略 RTX 5090 兼容性警告
+warnings.filterwarnings("ignore", message=".*NVIDIA GeForce RTX 5090.*")
+
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio, utils, training, loss_functions_adaptive_weight, modules
+import dataio, utils, training, loss_functions_adpt_weight_adaptive_weight, modules
+# import loss_functions
 
 from torch.utils.data import DataLoader
 import configargparse
@@ -56,8 +62,8 @@ p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidde
 
 opt = p.parse_args()
 
-# [修改] 传入 negative_sample_path
-sdf_dataset = dataio.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path)
+
+sdf_dataset = dataio.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size)
 dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
 
 # Define the model.
@@ -78,7 +84,7 @@ model.cuda()
 
 # Define the loss 
 from functools import partial
-loss_fn = partial(loss_functions_adaptive_weight.sdf, 
+loss_fn = partial(loss_functions.sdf, 
                   sdf_weight=opt.sdf_weight, 
                   inter_weight=opt.inter_weight, 
                   normal_weight=opt.normal_weight, 

@@ -14,7 +14,30 @@ class PointCloud(Dataset):
         coords = point_cloud[:, :3]
         self.normals = point_cloud[:, 3:6]
         self.coords = coords
+        
+        # [新增] 读取权重列 (如果存在)
+        # 假设 point_cloud 格式为: x y z nx ny nz [weight]
+        # 如果只有 6 列，则默认权重为 1
+        if point_cloud.shape[1] > 6:
+            self.weights = point_cloud[:, 6:7]
+            print(f"检测到权重列，范围: [{self.weights.min()}, {self.weights.max()}]")
+        else:
+            self.weights = np.ones((coords.shape[0], 1))
+            print("未检测到权重列，默认权重为 1")
 
+        # Reshape point cloud such that it lies in bounding box of (-1, 1) (distorts geometry, but makes for high
+        # sample efficiency)
+        # coords -= np.mean(coords, axis=0, keepdims=True)
+        # if keep_aspect_ratio:
+        #     coord_max = np.amax(coords)
+        #     coord_min = np.amin(coords)
+        # else:
+        #     coord_max = np.amax(coords, axis=0, keepdims=True)
+        #     coord_min = np.amin(coords, axis=0, keepdims=True)
+
+        # self.coords = (coords - coord_min) / (coord_max - coord_min)
+        # self.coords -= 0.5
+        # self.coords *= 2.
         # [新增] 读取权重列 (如果存在)
         if point_cloud.shape[1] > 6:
             self.weights = point_cloud[:, 6:7]
@@ -39,18 +62,22 @@ class PointCloud(Dataset):
 
         on_surface_coords = self.coords[rand_idcs, :]
         on_surface_normals = self.normals[rand_idcs, :]
+        on_surface_weights = self.weights[rand_idcs, :]  # [新增] 采样权重
 
         off_surface_coords = np.random.uniform(-1, 1, size=(off_surface_samples, 3))
         off_surface_normals = np.ones((off_surface_samples, 3)) * -1
+        off_surface_weights = np.ones((off_surface_samples, 1))  # [新增] 空间点权重默认为 1
 
         sdf = np.zeros((total_samples, 1))  # on-surface = 0
         sdf[self.on_surface_points:, :] = -1  # off-surface = -1
 
         coords = np.concatenate((on_surface_coords, off_surface_coords), axis=0)
         normals = np.concatenate((on_surface_normals, off_surface_normals), axis=0)
+        weights = np.concatenate((on_surface_weights, off_surface_weights), axis=0) # [新增]
 
         return {'coords': torch.from_numpy(coords).float()}, {'sdf': torch.from_numpy(sdf).float(),
-                                                              'normals': torch.from_numpy(normals).float()}
+                                                              'normals': torch.from_numpy(normals).float(),
+                                                              'weights': torch.from_numpy(weights).float()} # [新增]
 
 
 def get_mgrid(sidelen, dim=2):

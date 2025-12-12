@@ -20,9 +20,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
     # https://github.com/maziarraissi/PINNs
 
     if os.path.exists(model_dir):
-        val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
-        if val == 'y':
-            shutil.rmtree(model_dir)
+        # val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
+        # if val == 'y':
+        shutil.rmtree(model_dir)
 
     os.makedirs(model_dir)
 

@@ -57,7 +57,3 @@ def jacobian(y, x):
         status = -1
 
     return jac, status
-
-
-
-

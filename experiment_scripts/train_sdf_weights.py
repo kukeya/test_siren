@@ -7,7 +7,7 @@ import os
 import torch
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio, utils, training, loss_functions_adaptive_weight, modules
+import dataio_with_weights, utils, training, loss_functions_adaptive_weight, modules
 
 from torch.utils.data import DataLoader
 import configargparse
@@ -57,7 +57,7 @@ p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidde
 opt = p.parse_args()
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path)
+sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path)
 dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
 
 # Define the model.

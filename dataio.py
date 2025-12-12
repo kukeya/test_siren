@@ -1,10 +1,10 @@
 import numpy as np
 from torch.utils.data import Dataset
 import torch
-
+import os
 
 class PointCloud(Dataset):
-    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True):
+    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None):
         super().__init__()
 
         print("Loading point cloud")
@@ -16,8 +16,6 @@ class PointCloud(Dataset):
         self.coords = coords
 
         # [新增] 读取权重列 (如果存在)
-        # 假设 point_cloud 格式为: x y z nx ny nz [weight]
-        # 如果只有 6 列，则默认权重为 1
         if point_cloud.shape[1] > 6:
             self.weights = point_cloud[:, 6:7]
             print(f"检测到权重列，范围: [{self.weights.min()}, {self.weights.max()}]")
@@ -25,21 +23,7 @@ class PointCloud(Dataset):
             self.weights = np.ones((coords.shape[0], 1))
             print("未检测到权重列，默认权重为 1")
 
-        # Reshape point cloud such that it lies in bounding box of (-1, 1) (distorts geometry, but makes for high
-        # sample efficiency)
-        # coords -= np.mean(coords, axis=0, keepdims=True)
-        # if keep_aspect_ratio:
-        #     coord_max = np.amax(coords)
-        #     coord_min = np.amin(coords)
-        # else:
-        #     coord_max = np.amax(coords, axis=0, keepdims=True)
-        #     coord_min = np.amin(coords, axis=0, keepdims=True)
-
-        # self.coords = (coords - coord_min) / (coord_max - coord_min)
-        # self.coords -= 0.5
-        # self.coords *= 2.
-
-        self.on_surface_points = on_surface_points  # batch size的长度
+        self.on_surface_points = on_surface_points
 
     def __len__(self):
         return self.coords.shape[0] // self.on_surface_points
@@ -103,5 +87,3 @@ def lin2img(tensor, image_resolution=None):
         width = image_resolution[1]
 
     return tensor.permute(0, 2, 1).view(batch_size, channels, height, width)
-
-

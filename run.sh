@@ -40,6 +40,10 @@ ROOT_NAME="exp05_ds24_w"
 # 基础实验名
 BASE_EXP_NAME="${ROOT_NAME}_${RECUR_NUMBER}"
 
+# [新增] 负样本路径 (上一轮的 mesh)
+NEGATIVE_PATH="mesh/exp05_ds24/ruyi_recur$((RECUR_NUMBER-1))_n_deformed.xyz"
+echo "Negative Path: $NEGATIVE_PATH"
+
 echo "运行模式: $MODE"
 
 if [[ "$MODE" == "train" || "$MODE" == "all" ]]; then
@@ -52,10 +56,10 @@ if [[ "$MODE" == "train" || "$MODE" == "all" ]]; then
     echo "任务 2: ${EXP_NAME_2} (Epochs: ${EPOCH_2}) on GPU 1"
 
     # train 1 (GPU 0)
-    CUDA_VISIBLE_DEVICES=0 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --experiment_name "${EXP_NAME_1}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_1         --epochs_til_ckpt 500         --steps_til_summary 500 &
+    CUDA_VISIBLE_DEVICES=0 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --negative_path "$NEGATIVE_PATH"         --experiment_name "${EXP_NAME_1}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_1         --epochs_til_ckpt 500         --steps_til_summary 500 &
 
     # train 2 (GPU 1)
-    CUDA_VISIBLE_DEVICES=1 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --experiment_name "${EXP_NAME_2}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_2         --epochs_til_ckpt 500         --steps_til_summary 500 &
+    CUDA_VISIBLE_DEVICES=1 python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur$((RECUR_NUMBER))_n_deformed_w.xyz"         --negative_path "$NEGATIVE_PATH"         --experiment_name "${EXP_NAME_2}"         --checkpoint_path "logs/${ROOT_NAME}/${ROOT_NAME}_$((RECUR_NUMBER-1))/checkpoints/model_final.pth"         --num_epochs $EPOCH_2         --epochs_til_ckpt 500         --steps_til_summary 500 &
 
     # 等待所有后台任务完成
     wait
@@ -63,16 +67,26 @@ if [[ "$MODE" == "train" || "$MODE" == "all" ]]; then
 
     # 移动日志 1
     if [ -d "logs/${EXP_NAME_1}" ]; then
+        if [ ! -f "logs/${EXP_NAME_1}/checkpoints/model_final.pth" ]; then
+            echo "警告: 任务 1 似乎未生成 model_final.pth，训练可能失败。"
+        fi
         mkdir -p "logs/${ROOT_NAME}"
         rm -rf "logs/${ROOT_NAME}/${EXP_NAME_1}"
         mv "logs/${EXP_NAME_1}" "logs/${ROOT_NAME}/${EXP_NAME_1}"
+    else
+        echo "警告: 任务 1 输出目录 logs/${EXP_NAME_1} 不存在。"
     fi
 
     # 移动日志 2
     if [ -d "logs/${EXP_NAME_2}" ]; then
+        if [ ! -f "logs/${EXP_NAME_2}/checkpoints/model_final.pth" ]; then
+            echo "警告: 任务 2 似乎未生成 model_final.pth，训练可能失败。"
+        fi
         mkdir -p "logs/${ROOT_NAME}"
         rm -rf "logs/${ROOT_NAME}/${EXP_NAME_2}"
         mv "logs/${EXP_NAME_2}" "logs/${ROOT_NAME}/${EXP_NAME_2}"
+    else
+        echo "警告: 任务 2 输出目录 logs/${EXP_NAME_2} 不存在。"
     fi
 fi
 
@@ -83,10 +97,20 @@ if [[ "$MODE" == "test" || "$MODE" == "all" ]]; then
     echo "开始并行测试..."
 
     # test 1 (GPU 0)
-    CUDA_VISIBLE_DEVICES=0 python experiment_scripts/test_sdf.py         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME_1}/checkpoints/model_final.pth"         --experiment_name "${EXP_NAME_1}_rc" &
+    CKPT_1="logs/${ROOT_NAME}/${EXP_NAME_1}/checkpoints/model_final.pth"
+    if [ -f "$CKPT_1" ]; then
+        CUDA_VISIBLE_DEVICES=0 python experiment_scripts/test_sdf.py             --checkpoint_path "$CKPT_1"             --experiment_name "${EXP_NAME_1}_rc" &
+    else
+        echo "跳过测试 1: 找不到 checkpoint $CKPT_1"
+    fi
 
     # test 2 (GPU 1)
-    CUDA_VISIBLE_DEVICES=1 python experiment_scripts/test_sdf.py         --checkpoint_path "logs/${ROOT_NAME}/${EXP_NAME_2}/checkpoints/model_final.pth"         --experiment_name "${EXP_NAME_2}_rc" &
+    CKPT_2="logs/${ROOT_NAME}/${EXP_NAME_2}/checkpoints/model_final.pth"
+    if [ -f "$CKPT_2" ]; then
+        CUDA_VISIBLE_DEVICES=1 python experiment_scripts/test_sdf.py             --checkpoint_path "$CKPT_2"             --experiment_name "${EXP_NAME_2}_rc" &
+    else
+        echo "跳过测试 2: 找不到 checkpoint $CKPT_2"
+    fi
 
     wait
     echo "测试完成，整理日志..."
@@ -135,5 +159,9 @@ conda deactivate
 conda activate igr
 
 
-    # python experiment_scripts/train_sdf.py         --point_cloud_path "mesh/exp05_ds24/ruyi_recur88_n_deformed.xyz"         --experiment_name exp07_retrain_2         --num_epochs 3000         --epochs_til_ckpt 500         --steps_til_summary 500
-    # python experiment_scripts/test_sdf.py         --checkpoint_path "logs/exp07_retrain/checkpoints/model_final.pth"         --experiment_name "exp07_retrain_rc"
+python experiment_scripts/train_sdf_weights.py   --point_cloud_path "mesh/exp08/ruyi_recur89_n_deformed_zeronorm_w.xyz"  --experiment_name "exp08_nonorm" --checkpoint_path "logs/exp07_retrain/checkpoints/model_final.pth"   --num_epochs 4000          --epochs_til_ckpt 500          --steps_til_summary 500
+python experiment_scripts/test_sdf.py    --checkpoint_path "logs/exp08_nonorm/checkpoints/model_final.pth"    --experiment_name "exp08_nonorm_rc"
+
+
+
+python ./check_sdf.py --checkpoint_path /home/jym/Repos/test_siren/logs/exp08_0.15/checkpoints/model_final.pth --point_cloud_path /home/jym/Repos/test_siren/mesh/exp08/ruyi_recur89_n_deformed_w.xyz

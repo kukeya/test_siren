@@ -45,21 +45,39 @@ def check_sdf():
         print("Error: Point cloud does not have SDF column (7th column).")
         return
 
-    # 4. 筛选出关键点 (膨胀点/负值点)
-    # 假设你的膨胀点 SDF < -1e-6
-    mask_inner = gt_sdf < -1e-6
-    mask_surface = np.abs(gt_sdf) < 1e-6
+    # 检测第8列 is_deformed 标记
+    if point_cloud.shape[1] > 7:
+        is_deformed = point_cloud[:, 7] == 1
+        print(f"检测到 is_deformed 标记列，膨胀相关点数: {np.sum(is_deformed)}")
+    else:
+        # 兼容旧格式
+        is_deformed = gt_sdf < -1e-6
+        print(f"未检测到标记列，使用 SDF<0 作为标记")
+
+    # 4. 筛选不同类型的点
+    # 类型1: 插值点 (SDF < 0, is_deformed = 1)
+    mask_inner = (gt_sdf < -1e-6) & is_deformed
+    # 类型2: 膨胀后的表面点 (SDF = 0, is_deformed = 1)
+    mask_deformed_surface = (np.abs(gt_sdf) < 1e-6) & is_deformed
+    # 类型3: 普通表面点 (SDF = 0, is_deformed = 0)
+    mask_normal_surface = (np.abs(gt_sdf) < 1e-6) & (~is_deformed)
     
     inner_coords = coords[mask_inner]
-    print(f"Total inner in point cloud: {len(inner_coords)}")
     inner_gt = gt_sdf[mask_inner]
     
-    surface_coords = coords[mask_surface]
-    surface_gt = gt_sdf[mask_surface]
+    deformed_surface_coords = coords[mask_deformed_surface]
+    deformed_surface_gt = gt_sdf[mask_deformed_surface]
+    
+    normal_surface_coords = coords[mask_normal_surface]
+    normal_surface_gt = gt_sdf[mask_normal_surface]
 
-    print(f"\nTotal points: {len(coords)}")
-    print(f"Inner/Deformed points (Target < 0): {len(inner_coords)}")
-    print(f"Surface points (Target = 0): {len(surface_coords)}")
+    print(f"\n{'='*60}")
+    print(f"数据统计:")
+    print(f"{'='*60}")
+    print(f"总点数: {len(coords)}")
+    print(f"  - 插值点 (SDF < 0): {len(inner_coords)}")
+    print(f"  - 膨胀后表面点 (SDF = 0, is_deformed = 1): {len(deformed_surface_coords)}")
+    print(f"  - 普通表面点 (SDF = 0, is_deformed = 0): {len(normal_surface_coords)}")
 
     # 5. 推理函数
     def predict_chunk(coords_chunk):
@@ -68,10 +86,11 @@ def check_sdf():
             model_output = model(model_input)
         return model_output['model_out'].squeeze().cpu().numpy()
 
-    # 6. 检查膨胀点 (Inner Points)
+    # 6. 检查插值点 (Inner Points)
     if len(inner_coords) > 0:
-        print("\n--- Checking Deformed/Inner Points ---")
-        # 分块预测防止显存爆炸
+        print(f"\n{'='*60}")
+        print("检查插值点 (SDF < 0)")
+        print(f"{'='*60}")
         pred_sdf_inner = []
         chunk_size = 10000
         for i in range(0, len(inner_coords), chunk_size):
@@ -79,7 +98,6 @@ def check_sdf():
             pred_sdf_inner.append(predict_chunk(chunk))
         pred_sdf_inner = np.concatenate(pred_sdf_inner)
 
-        # 统计误差
         diff = pred_sdf_inner - inner_gt
         mae = np.mean(np.abs(diff))
         
@@ -88,29 +106,66 @@ def check_sdf():
         print(f"Min Predicted SDF:  {np.min(pred_sdf_inner):.6f}")
         print(f"Max Predicted SDF:  {np.max(pred_sdf_inner):.6f}")
         
-        # 关键诊断：有多少点真的变成了负数？
         num_negative = np.sum(pred_sdf_inner < 0)
-        print(f"Points successfully predicted < 0: {num_negative} / {len(inner_coords)} ({num_negative/len(inner_coords)*100:.2f}%)")
+        print(f"正确预测为负数: {num_negative} / {len(inner_coords)} ({num_negative/len(inner_coords)*100:.2f}%)")
         
-        # 打印前10个样本
-        print("\nSample predictions (Target vs Pred):")
+        print("\n样本预测 (前10个):")
         for i in range(min(10, len(inner_coords))):
-            print(f"  GT: {inner_gt[i]:.6f} | Pred: {pred_sdf_inner[i]:.6f} | Diff: {np.abs(inner_gt[i]-pred_sdf_inner[i]):.6f}")
+            status = "✓" if pred_sdf_inner[i] < 0 else "✗"
+            print(f"  {status} GT: {inner_gt[i]:.6f} | Pred: {pred_sdf_inner[i]:.6f}")
 
-    # 7. 检查表面点 (Surface Points)
-    if len(surface_coords) > 0:
-        print("\n--- Checking Surface Points ---")
-        # 随机采样 10000 个点检查即可
-        if len(surface_coords) > 10000:
-            idcs = np.random.choice(len(surface_coords), 10000, replace=False)
-            check_coords = surface_coords[idcs]
-        else:
-            check_coords = surface_coords
-            
-        pred_sdf_surface = predict_chunk(check_coords)
+    # 7. 检查膨胀后的表面点
+    if len(deformed_surface_coords) > 0:
+        print(f"\n{'='*60}")
+        print("检查膨胀后表面点 (SDF = 0, is_deformed = 1)")
+        print(f"{'='*60}")
         
-        print(f"Mean Absolute Error (MAE): {np.mean(np.abs(pred_sdf_surface)):.6f}")
-        print(f"Mean Predicted SDF: {np.mean(pred_sdf_surface):.6f}")
+        pred_sdf_deformed = []
+        for i in range(0, len(deformed_surface_coords), chunk_size):
+            chunk = deformed_surface_coords[i:i+chunk_size]
+            pred_sdf_deformed.append(predict_chunk(chunk))
+        pred_sdf_deformed = np.concatenate(pred_sdf_deformed)
+        
+        mae = np.mean(np.abs(pred_sdf_deformed - deformed_surface_gt))
+        print(f"Mean Absolute Error (MAE): {mae:.6f}")
+        print(f"Mean Predicted SDF: {np.mean(pred_sdf_deformed):.6f} (Target: 0)")
+        print(f"Min Predicted SDF:  {np.min(pred_sdf_deformed):.6f}")
+        print(f"Max Predicted SDF:  {np.max(pred_sdf_deformed):.6f}")
+        
+        # 关键指标：有多少膨胀点预测为正值（表面收缩）
+        num_positive = np.sum(pred_sdf_deformed > 0.001)
+        num_negative = np.sum(pred_sdf_deformed < -0.001)
+        num_near_zero = np.sum(np.abs(pred_sdf_deformed) <= 0.001)
+        
+        print(f"\n膨胀点预测分布:")
+        print(f"  - 预测 > 0.001 (表面收缩): {num_positive} ({num_positive/len(deformed_surface_coords)*100:.2f}%)")
+        print(f"  - 预测 ≈ 0 (正确): {num_near_zero} ({num_near_zero/len(deformed_surface_coords)*100:.2f}%)")
+        print(f"  - 预测 < -0.001 (过度膨胀): {num_negative} ({num_negative/len(deformed_surface_coords)*100:.2f}%)")
+        
+        print("\n样本预测 (前10个):")
+        for i in range(min(10, len(deformed_surface_coords))):
+            status = "✓" if np.abs(pred_sdf_deformed[i]) <= 0.001 else "✗"
+            print(f"  {status} GT: {deformed_surface_gt[i]:.6f} | Pred: {pred_sdf_deformed[i]:.6f}")
+
+    # 8. 检查普通表面点
+    if len(normal_surface_coords) > 0:
+        print(f"\n{'='*60}")
+        print("检查普通表面点 (SDF = 0, is_deformed = 0)")
+        print(f"{'='*60}")
+        
+        # 随机采样 10000 个点
+        if len(normal_surface_coords) > 10000:
+            idcs = np.random.choice(len(normal_surface_coords), 10000, replace=False)
+            check_coords = normal_surface_coords[idcs]
+        else:
+            check_coords = normal_surface_coords
+            
+        pred_sdf_normal = predict_chunk(check_coords)
+        
+        print(f"Mean Absolute Error (MAE): {np.mean(np.abs(pred_sdf_normal)):.6f}")
+        print(f"Mean Predicted SDF: {np.mean(pred_sdf_normal):.6f} (Target: 0)")
+        print(f"Min Predicted SDF:  {np.min(pred_sdf_normal):.6f}")
+        print(f"Max Predicted SDF:  {np.max(pred_sdf_normal):.6f}")
         
 if __name__ == '__main__':
     check_sdf()

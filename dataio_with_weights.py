@@ -4,7 +4,7 @@ import torch
 import os
 
 class PointCloud(Dataset):
-    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None):
+    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None, inner_ratio=0.15):
         super().__init__()
 
         print("Loading point cloud")
@@ -17,7 +17,9 @@ class PointCloud(Dataset):
 
         if point_cloud.shape[1] > 6:
             self.sdf_gt = point_cloud[:, 6:7]
+            self.is_deform = point_cloud[:, 7:8]
             print(f"检测到SDF列，范围: [{self.sdf_gt.min()}, {self.sdf_gt.max()}]")
+            print(f"检测到变形标记列, {len(self.is_deform)} 个点")
             
             # === 动态生成权重逻辑 ===
             # 初始化权重为 1
@@ -25,14 +27,14 @@ class PointCloud(Dataset):
             
             # 找到所有负值点 (膨胀/内部点)
             # 注意：这里假设你的膨胀点 SDF 是负数 (如 -0.0024)
-            is_inner_point = self.sdf_gt < -1e-6
-            print(f"检测到 {np.sum(is_inner_point)} 个内部点 (SDF < -1e-6)")
-            
+            # is_inner_point = self.sdf_gt < -1e-6
+            # print(f"检测到 {np.sum(is_inner_point)} 个内部点 (SDF < -1e-6)")
             # 给这些点赋予高权重 (例如 1000 倍)
             # 你可以根据效果调整这个数值，数值越小越难学，权重就要越大
-            self.weights[is_inner_point] = 200.0
+            # self.weights[is_inner_point] = 200.0
+            self.weights[self.is_deform == 1] = 200.0
             
-            print(f"已为 {np.sum(is_inner_point)} 个内部点赋予高权重 (100.0)")
+            # print(f"已为 {np.sum(is_inner_point)} 个内部点赋予高权重 (100.0)")
         else:
             self.sdf_gt = np.zeros((coords.shape[0], 1))
             self.weights = np.ones((coords.shape[0], 1))
@@ -40,15 +42,20 @@ class PointCloud(Dataset):
 
         # [新增] 预先分离索引
         # 找出关键点（膨胀点/负值点）的索引
-        self.inner_indices = np.where(self.sdf_gt < -1e-6)[0]
+        # self.inner_indices = np.where(self.sdf_gt < -1e-6)[0]
         # 找出普通表面点的索引
-        self.surface_indices = np.where(np.abs(self.sdf_gt) < 1e-6)[0]
+        # self.surface_indices = np.where(np.abs(self.sdf_gt) < 1e-6)[0]
         
+        # print(f"采样策略初始化: 关键点 {len(self.inner_indices)} 个, 普通点 {len(self.surface_indices)} 个")
+
+        self.inner_indices = np.where(self.is_deform == 1)[0]
+        self.surface_indices = np.where(self.is_deform == 0)[0]
         print(f"采样策略初始化: 关键点 {len(self.inner_indices)} 个, 普通点 {len(self.surface_indices)} 个")
         
         # 设定关键点在每个 Batch 中的占比 (例如 20% ~ 50%)
         # 即使它们只占总数的 1%，我们也强制让它们占 Batch 的 20%
-        self.inner_ratio = 0.15
+        # v4 增加采样频次，因为点少了
+        self.inner_ratio = inner_ratio
 
         self.on_surface_points = on_surface_points
 
@@ -79,6 +86,8 @@ class PointCloud(Dataset):
         on_surface_normals = self.normals[rand_idcs, :]
         on_surface_sdf = self.sdf_gt[rand_idcs, :]
         on_surface_weights = self.weights[rand_idcs, :]
+        on_surface_is_deform = self.is_deform[rand_idcs, :]  # 新增
+
 
         # --- 准备 Off-surface 数据 ---
         off_surface_samples = self.on_surface_points
@@ -88,15 +97,20 @@ class PointCloud(Dataset):
         off_surface_normals = np.ones((off_surface_samples, 3)) * -1
         off_surface_sdf = np.ones((off_surface_samples, 1)) * -1
         # off_surface_weights = np.ones((off_surface_samples, 1)) # 空间点的权重设为 1
+        off_surface_is_deform = np.zeros((off_surface_samples, 1))  # 新增：空间点不是膨胀点
+
 
         # --- 拼接所有数据 ---
         coords = np.concatenate((on_surface_coords, off_surface_coords), axis=0)
         normals = np.concatenate((on_surface_normals, off_surface_normals), axis=0)
         sdf = np.concatenate((on_surface_sdf, off_surface_sdf), axis=0)
         # weights = np.concatenate((on_surface_weights, off_surface_weights), axis=0)
+        is_deform = np.concatenate((on_surface_is_deform, off_surface_is_deform), axis=0)  # 新增
+
 
         return {'coords': torch.from_numpy(coords).float()}, {'sdf': torch.from_numpy(sdf).float(),
-                                                              'normals': torch.from_numpy(normals).float()}
+                                                              'normals': torch.from_numpy(normals).float(), 
+                                                              'is_deform': torch.from_numpy(is_deform).bool()}
 
 
 def get_mgrid(sidelen, dim=2):

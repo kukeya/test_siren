@@ -9,8 +9,6 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
        '''
     gt_sdf = gt['sdf']
     gt_normals = gt['normals']
-    # [新增] 获取权重，如果没有则默认为 1
-    weights = gt.get('weights', torch.ones_like(gt_sdf))
 
     coords = model_output['model_in']
     pred_sdf = model_output['model_out']
@@ -24,12 +22,10 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
                                     torch.zeros_like(gradient[..., :1]))
     grad_constraint = torch.abs(gradient.norm(dim=-1) - 1)
     
-    # [修改] 应用权重到 sdf_constraint
-    weighted_sdf_constraint = torch.abs(sdf_constraint) * weights
 
     # Exp      # Lapl
     # -----------------
-    return {'sdf': weighted_sdf_constraint.mean() * sdf_weight,  
+    return {'sdf': (torch.abs(sdf_constraint)).mean() * sdf_weight,   ## L1 loss for SDF
             'inter': inter_constraint.mean() * inter_weight, 
             'normal_constraint': normal_constraint.mean() * normal_weight,
             'grad_constraint': grad_constraint.mean() * grad_weight}

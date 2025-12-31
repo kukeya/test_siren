@@ -12,8 +12,8 @@ warnings.filterwarnings("ignore", message=".*NVIDIA GeForce RTX 5090.*")
 
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio, utils, training, loss_functions_adpt_weight_adaptive_weight, modules
-# import loss_functions
+import dataio, utils, training, modules
+import loss_function.loss_functions as loss_functions
 
 from torch.utils.data import DataLoader
 import configargparse
@@ -73,7 +73,7 @@ model = modules.SingleBVPNet(type=opt.model_type, in_features=3,
 
 # Load checkpoint if provided
 if opt.checkpoint_path is not None:
-    checkpoint = torch.load(opt.checkpoint_path)
+    checkpoint = torch.load(opt.checkpoint_path, map_location=lambda storage, loc: storage.cuda())
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
     else:

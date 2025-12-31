@@ -7,7 +7,7 @@ import os
 import torch
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio_with_weights, utils, training, loss_functions_adaptive_weight, modules
+import dataio_with_weights, utils, training, loss_functions_adaptive_weight_sdf_positive_punish, modules
 
 from torch.utils.data import DataLoader
 import configargparse
@@ -56,8 +56,13 @@ p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidde
 
 opt = p.parse_args()
 
+# Detect device and ensure CUDA availability
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if device.type != 'cuda':
+    raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
+
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path)
+sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
 dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
 
 # Define the model.
@@ -67,18 +72,18 @@ model = modules.SingleBVPNet(type=opt.model_type, in_features=3,
 
 # Load checkpoint if provided
 if opt.checkpoint_path is not None:
-    checkpoint = torch.load(opt.checkpoint_path)
+    checkpoint = torch.load(opt.checkpoint_path, map_location=device)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
     else:
-        model.load_state_dict(checkpoint) # 兼容只保存了 state_dict 的情况
+        model.load_state_dict(checkpoint)  # 兼容只保存了 state_dict 的情况
     print(f"Loaded checkpoint from {opt.checkpoint_path}")
 
 model.cuda()
 
 # Define the loss 
 from functools import partial
-loss_fn = partial(loss_functions_adaptive_weight.sdf, 
+loss_fn = partial(loss_functions_adaptive_weight_sdf_positive_punish.sdf, 
                   sdf_weight=opt.sdf_weight, 
                   inter_weight=opt.inter_weight, 
                   normal_weight=opt.normal_weight, 

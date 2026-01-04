@@ -50,7 +50,7 @@ run_train_job() {
     local exp_name="$2"
 
     local -a cmd=(
-        python experiment_scripts/train_sdf_L2.py \
+        python experiment_scripts/train_sdf_weights.py \
         --point_cloud_path "${POINT_CLOUD_PATH}" \
         --experiment_name "${exp_name}" \
         --num_epochs "${epochs}" \
@@ -131,7 +131,7 @@ fi
 if [[ "$MODE" == "origin" ]]; then
     EXP_NAME="${BASE_EXP_NAME}"
     echo "从原始 checkpoint 开始训练..."
-    python experiment_scripts/train_sdf.py \
+    python experiment_scripts/train_sdf_weights.py \
         --point_cloud_path "mesh/${ROOT_NAME}/ruyi_recur0_n_deformed.xyz" \
         --experiment_name "${EXP_NAME}" \
         --checkpoint_path "logs/origin/checkpoints/model_final.pth" \

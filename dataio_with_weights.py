@@ -16,14 +16,15 @@ class PointCloud(Dataset):
         self.coords = coords
 
         if point_cloud.shape[1] > 6:
-            self.sdf_gt = point_cloud[:, 6:7]
-            self.is_deform = point_cloud[:, 7:8]
-            print(f"检测到SDF列，范围: [{self.sdf_gt.min()}, {self.sdf_gt.max()}]")
+            # self.sdf_gt = point_cloud[:, 6:7]
+            self.is_deform = point_cloud[:, 6:7]
             print(f"检测到变形标记列, {len(self.is_deform)} 个点")
+        else:
+            self.is_deform = np.zeros((coords.shape[0], 1))
             
             # === 动态生成权重逻辑 ===
             # 初始化权重为 1
-            self.weights = np.ones_like(self.sdf_gt)
+            # self.weights = np.ones_like(self.sdf_gt)
             
             # 找到所有负值点 (膨胀/内部点)
             # 注意：这里假设你的膨胀点 SDF 是负数 (如 -0.0024)
@@ -32,13 +33,13 @@ class PointCloud(Dataset):
             # 给这些点赋予高权重 (例如 1000 倍)
             # 你可以根据效果调整这个数值，数值越小越难学，权重就要越大
             # self.weights[is_inner_point] = 200.0
-            self.weights[self.is_deform == 1] = 200.0
+            # self.weights[self.is_deform == 1] = 200.0
             
             # print(f"已为 {np.sum(is_inner_point)} 个内部点赋予高权重 (100.0)")
-        else:
-            self.sdf_gt = np.zeros((coords.shape[0], 1))
-            self.weights = np.ones((coords.shape[0], 1))
-            print("未检测到SDF列，默认为0，权重为1")
+        # else:
+            # self.sdf_gt = np.zeros((coords.shape[0], 1))
+            # self.weights = np.ones((coords.shape[0], 1))
+            # print("未检测到SDF列，默认为0，权重为1")
 
         # [新增] 预先分离索引
         # 找出关键点（膨胀点/负值点）的索引
@@ -84,8 +85,8 @@ class PointCloud(Dataset):
         # --- 获取 On-surface 数据 ---
         on_surface_coords = self.coords[rand_idcs, :]
         on_surface_normals = self.normals[rand_idcs, :]
-        on_surface_sdf = self.sdf_gt[rand_idcs, :]
-        on_surface_weights = self.weights[rand_idcs, :]
+        # on_surface_sdf = self.sdf_gt[rand_idcs, :]
+        # on_surface_weights = self.weights[rand_idcs, :]
         on_surface_is_deform = self.is_deform[rand_idcs, :]  # 新增
 
 
@@ -95,15 +96,18 @@ class PointCloud(Dataset):
 
         off_surface_coords = np.random.uniform(-1, 1, size=(off_surface_samples, 3))
         off_surface_normals = np.ones((off_surface_samples, 3)) * -1
-        off_surface_sdf = np.ones((off_surface_samples, 1)) * -1
+        # off_surface_sdf = np.ones((off_surface_samples, 1)) * -1
         # off_surface_weights = np.ones((off_surface_samples, 1)) # 空间点的权重设为 1
         off_surface_is_deform = np.zeros((off_surface_samples, 1))  # 新增：空间点不是膨胀点
 
 
         # --- 拼接所有数据 ---
+        sdf = np.zeros((total_samples, 1))  # on-surface = 0
+        sdf[self.on_surface_points:, :] = -1  # off-surface = -1
+
         coords = np.concatenate((on_surface_coords, off_surface_coords), axis=0)
         normals = np.concatenate((on_surface_normals, off_surface_normals), axis=0)
-        sdf = np.concatenate((on_surface_sdf, off_surface_sdf), axis=0)
+        
         # weights = np.concatenate((on_surface_weights, off_surface_weights), axis=0)
         is_deform = np.concatenate((on_surface_is_deform, off_surface_is_deform), axis=0)  # 新增
 

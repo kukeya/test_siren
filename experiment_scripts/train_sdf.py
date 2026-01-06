@@ -32,6 +32,7 @@ p.add_argument('--experiment_name', type=str, default='exp2',
 # General training options
 p.add_argument('--batch_size', type=int, default=15000)
 p.add_argument('--lr', type=float, default=1e-4, help='learning rate. default=5e-5')
+p.add_argument('--use_lr_decay', action='store_true', default=False, help='Enable learning rate decay')
 p.add_argument('--num_epochs', type=int, default=3000,
                help='Number of epochs to train for.')
 
@@ -96,4 +97,4 @@ root_path = os.path.join(opt.logging_root, opt.experiment_name)
 training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True)
+               clip_grad=True, use_lr_decay=opt.use_lr_decay)

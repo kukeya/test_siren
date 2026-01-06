@@ -12,12 +12,30 @@ import shutil
 
 
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_fn,
-          summary_fn, val_dataloader=None, double_precision=False, clip_grad=False, use_lbfgs=False, loss_schedules=None):
+          summary_fn, val_dataloader=None, double_precision=False, clip_grad=False, use_lbfgs=False, loss_schedules=None, use_lr_decay=False):
 
     optim = torch.optim.Adam(lr=lr, params=model.parameters())
 
+    scheduler = None #[新增]学习率衰减
+
+    if use_lr_decay:
+        # 学习率衰减策略：每经过总 Epoch 数的 1/4，学习率乘以 0.5
+        # 例如：总共 2000 epochs，则每 500 epochs 衰减一次
+        ratios = [0.4, 0.7, 0.9] # 调整里程碑，让前期多训练一会儿
+        milestones = [int(epochs * r) for r in ratios]
+
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optim, 
+            milestones=milestones,
+            gamma=0.5
+        )
+
+
     # copy settings from Raissi et al. (2019) and here 
     # https://github.com/maziarraissi/PINNs
+    if use_lbfgs:
+        optim = torch.optim.LBFGS(lr=lr, params=model.parameters(), max_iter=50000, max_eval=50000,
+                                  history_size=50, line_search_fn='strong_wolfe')
 
     if os.path.exists(model_dir):
         # val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
@@ -43,6 +61,8 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                            os.path.join(checkpoints_dir, 'model_epoch_%04d.pth' % epoch))
                 np.savetxt(os.path.join(checkpoints_dir, 'train_losses_epoch_%04d.txt' % epoch),
                            np.array(train_losses))
+                
+            epoch_loss_dict = {} # [新增]用于累积每一项 loss
 
             for step, (model_input, gt) in enumerate(train_dataloader):
                 start_time = time.time()
@@ -54,6 +74,18 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                     model_input = {key: value.double() for key, value in model_input.items()}
                     gt = {key: value.double() for key, value in gt.items()}
 
+                if use_lbfgs:
+                    def closure():
+                        optim.zero_grad()
+                        model_output = model(model_input)
+                        losses = loss_fn(model_output, gt)
+                        train_loss = 0.
+                        for loss_name, loss in losses.items():
+                            train_loss += loss.mean() 
+                        train_loss.backward()
+                        return train_loss
+                    optim.step(closure)
+
                 
                 model_output = model(model_input)
                 losses = loss_fn(model_output, gt)
@@ -61,6 +93,12 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 train_loss = 0.
                 for loss_name, loss in losses.items():
                     single_loss = loss.mean()
+
+                    # --- [新增] 累积每一项 loss ---
+                    if loss_name not in epoch_loss_dict:
+                        epoch_loss_dict[loss_name] = 0.0
+                    epoch_loss_dict[loss_name] += single_loss.item()
+                    # -----------------------------
 
                     if loss_schedules is not None and loss_name in loss_schedules:
                         writer.add_scalar(loss_name + "_weight", loss_schedules[loss_name](total_steps), total_steps)
@@ -99,7 +137,15 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 pbar.update(1)
 
                 if not total_steps % steps_til_summary:
-                    tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
+                    # tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
+                    loss_str = ", ".join([f"{k}: {v / (step + 1):.6f}" for k, v in epoch_loss_dict.items()])
+                    tqdm.write("Epoch %d, Total: %0.6f | %s" % (epoch, train_loss, loss_str))
+                    # 重置累积字典，避免数值过大且方便观察当前阶段
+                    epoch_loss_dict = {} 
+                    # ---------------------------
+                    
+                    current_lr = optim.param_groups[0]['lr'] #[新增]记录当前学习率
+                    writer.add_scalar("learning_rate", current_lr, total_steps) #[新增]将当前学习率写入 TensorBoard
 
                     if val_dataloader is not None:
                         print("Running validation set...")
@@ -115,6 +161,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                         model.train()
 
                 total_steps += 1
+
+            if scheduler is not None:
+                scheduler.step()  #[新增]更新学习率
 
         torch.save(model.state_dict(),
                    os.path.join(checkpoints_dir, 'model_final.pth'))

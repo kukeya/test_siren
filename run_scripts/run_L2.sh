@@ -5,8 +5,8 @@ eval "$(conda shell.bash hook)"
 conda activate m_siren
 
 MODE="all"
-RECUR_NUMBER=14
-TRAIN_EPOCHS=3000
+RECUR_NUMBER=7
+TRAIN_EPOCHS=5000
 ORIGIN_EPOCHS=3000
 ROOT_NAME="exp11"
 

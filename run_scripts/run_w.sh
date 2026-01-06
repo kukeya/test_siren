@@ -208,9 +208,10 @@ python experiment_scripts/test_sdf.py \
 #     --point_cloud_path mesh/exp14_v2/ruyi_recur0_n_deformed_w.xyz
 
 
-# python experiment_scripts/test_sdf.py \
-#     --checkpoint_path "logs/original/checkpoints/model_final.pth" \
-#     --experiment_name "original_rc"
+python experiment_scripts/test_sdf.py \
+    --checkpoint_path "logs/exp23_v3/exp23_v3_6_decay_e3000/checkpoints/model_final.pth" \
+    --experiment_name "exp23_v3_6_decay_e3000_1024_rc" \
+    --resolution 1024
 
 
 # python experiment_scripts/train_sdf.py \

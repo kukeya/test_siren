@@ -25,7 +25,7 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
 
     # Exp      # Lapl
     # -----------------
-    return {'sdf': (sdf_constraint ** 2).mean() * 1e2 * sdf_weight, ## L2 loss for SDF
+    return {'sdf': (sdf_constraint ** 2).mean() * 1e3 * sdf_weight, ## L2 loss for SDF
             'inter': inter_constraint.mean() * inter_weight, 
             'normal_constraint': normal_constraint.mean() * normal_weight,
             'grad_constraint': grad_constraint.mean() * grad_weight}

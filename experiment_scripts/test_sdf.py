@@ -27,6 +27,8 @@ p.add_argument('--model_type', type=str, default='sine',
 p.add_argument('--mode', type=str, default='mlp',
                help='Options are "mlp" or "nerf"')
 p.add_argument('--resolution', type=int, default=512)
+p.add_argument('--output_ply', type=str, default='', help='Absolute path for the output mesh file')
+
 
 # === 新增：添加网络结构参数 ===
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features')
@@ -63,4 +65,12 @@ sdf_decoder = SDFDecoder()
 root_path = os.path.join(opt.logging_root, opt.experiment_name)
 utils.cond_mkdir(root_path)
 
-sdf_meshing.create_mesh(sdf_decoder, os.path.join(root_path, 'test'), N=opt.resolution)
+if opt.output_ply:
+    # 确保父目录存在
+    os.makedirs(os.path.dirname(opt.output_ply), exist_ok=True)
+    ply_path = opt.output_ply
+else:
+    # 保持旧逻辑
+    ply_path = os.path.join(root_path, 'test')
+
+sdf_meshing.create_mesh(sdf_decoder, ply_path, N=opt.resolution)

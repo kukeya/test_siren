@@ -62,7 +62,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 np.savetxt(os.path.join(checkpoints_dir, 'train_losses_epoch_%04d.txt' % epoch),
                            np.array(train_losses))
                 
-            epoch_loss_dict = {} # [新增]用于累积每一项 loss
+            # epoch_loss_dict = {} # [新增]用于累积每一项 loss
 
             for step, (model_input, gt) in enumerate(train_dataloader):
                 start_time = time.time()
@@ -95,9 +95,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                     single_loss = loss.mean()
 
                     # --- [新增] 累积每一项 loss ---
-                    if loss_name not in epoch_loss_dict:
-                        epoch_loss_dict[loss_name] = 0.0
-                    epoch_loss_dict[loss_name] += single_loss.item()
+                    # if loss_name not in epoch_loss_dict:
+                    #     epoch_loss_dict[loss_name] = 0.0
+                    # epoch_loss_dict[loss_name] += single_loss.item()
                     # -----------------------------
 
                     if loss_schedules is not None and loss_name in loss_schedules:
@@ -137,11 +137,11 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 pbar.update(1)
 
                 if not total_steps % steps_til_summary:
-                    # tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
-                    loss_str = ", ".join([f"{k}: {v / (step + 1):.6f}" for k, v in epoch_loss_dict.items()])
-                    tqdm.write("Epoch %d, Total: %0.6f | %s" % (epoch, train_loss, loss_str))
+                    tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
+                    # loss_str = ", ".join([f"{k}: {v / (step + 1):.6f}" for k, v in epoch_loss_dict.items()])
+                    # tqdm.write("Epoch %d, Total: %0.6f | %s" % (epoch, train_loss, loss_str))
                     # 重置累积字典，避免数值过大且方便观察当前阶段
-                    epoch_loss_dict = {} 
+                    # epoch_loss_dict = {} 
                     # ---------------------------
                     
                     current_lr = optim.param_groups[0]['lr'] #[新增]记录当前学习率

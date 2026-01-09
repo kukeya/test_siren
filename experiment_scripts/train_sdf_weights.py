@@ -7,12 +7,11 @@ import os
 import torch
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio_with_weights, utils, training, modules
-import loss_function.loss_functions_L2 as loss_functions
-
-from torch.utils.data import DataLoader
+import dataio_with_weights_gpu as dataio_with_weights_gpu, utils, training, modules
 import configargparse
 import gpu_utils
+import importlib  # [新增]
+from torch.utils.data import DataLoader
 
 
 gpu_utils.auto_select_gpu()
@@ -53,9 +52,23 @@ p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikona
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
+p.add_argument('--log_dir', type=str, default='', help='Direct path to save logs and checkpoints')
+
+# [新增] 选择损失版本：默认 L1，可显式 --L2
+loss_group = p.add_mutually_exclusive_group()
+loss_group.add_argument('--L1', action='store_true', help='Use loss_function.loss_functions (L1)')
+loss_group.add_argument('--L2', action='store_true', help='Use loss_function.loss_functionsL2 (L2)')
 
 
 opt = p.parse_args()
+# --- 修改路径逻辑 ---
+if opt.log_dir:
+    # 如果指定了 log_dir，直接使用它，不再在下面创建子文件夹
+    root_path = opt.log_dir
+    os.makedirs(root_path, exist_ok=True)
+else:
+    # 保持原有逻辑 (兼容以前的实验)
+    root_path = os.path.join(opt.logging_root, opt.experiment_name)
 
 # Detect device and ensure CUDA availability
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -63,8 +76,18 @@ if device.type != 'cuda':
     raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
-dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+sdf_dataset = dataio_with_weights_gpu.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
+dataloader = DataLoader(
+    sdf_dataset,
+    shuffle=True,
+    batch_size=1,
+    pin_memory=True,           # 允许非阻塞搬运
+    num_workers=8,             # 根据CPU核心调整
+    persistent_workers=True,
+    prefetch_factor=4
+)
+# dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=4)
+
 
 # Define the model.
 model = modules.SingleBVPNet(type=opt.model_type, in_features=3, 
@@ -82,18 +105,30 @@ if opt.checkpoint_path is not None:
 
 model.cuda()
 
-# Define the loss 
+# [替换原固定导入方式]
+# from functools import partial
+# import loss_function.loss_functions as loss_functions  <-- 删除固定导入
+
+# [新增] 按参数动态导入模块并构建 loss_fn
+loss_module_name = 'loss_function.loss_functions_L2' if opt.L2 else 'loss_function.loss_functions'
+loss_module = importlib.import_module(loss_module_name)
 from functools import partial
-loss_fn = partial(loss_functions.sdf, 
-                  sdf_weight=opt.sdf_weight, 
-                  inter_weight=opt.inter_weight, 
-                  normal_weight=opt.normal_weight, 
-                  grad_weight=opt.grad_weight)
+loss_fn = partial(
+    loss_module.sdf,
+    sdf_weight=opt.sdf_weight,
+    inter_weight=opt.inter_weight,
+    normal_weight=opt.normal_weight,
+    grad_weight=opt.grad_weight
+)
 summary_fn = utils.write_sdf_summary
 
-root_path = os.path.join(opt.logging_root, opt.experiment_name)
+print(f"--------------------------------------------------")
+print(f"[Train] Model Output Dir: {root_path}")
+print(f"[Train] Log Dir arg: {opt.log_dir}")
+print(f"[Train] Using loss module: {loss_module_name}")  # [新增]
+print(f"--------------------------------------------------")
 
 training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True)
+               clip_grad=True, use_lr_decay=True)

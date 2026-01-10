@@ -77,16 +77,8 @@ if device.type != 'cuda':
 
 # [修改] 传入 negative_sample_path
 sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
-dataloader = DataLoader(
-    sdf_dataset,
-    shuffle=True,
-    batch_size=1,
-    pin_memory=True,           # 允许非阻塞搬运
-    num_workers=8,             # 根据CPU核心调整
-    persistent_workers=True,
-    prefetch_factor=4
-)
-# dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=4)
+
+dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=False, num_workers=0)
 
 
 # Define the model.

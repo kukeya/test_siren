@@ -2,10 +2,15 @@ import numpy as np
 from torch.utils.data import Dataset
 import torch
 import os
+from scipy.spatial import cKDTree  # [新增] 用于计算局部密度
 
 class PointCloud(Dataset):
     def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None, inner_ratio=0.15):
         super().__init__()
+
+        # [新增] 定义设备，优先使用 GPU
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Data processing device: {self.device}")
 
         print("Loading point cloud")
         point_cloud = np.genfromtxt(pointcloud_path)
@@ -14,9 +19,9 @@ class PointCloud(Dataset):
         coords_np = point_cloud[:, :3].astype(np.float32)
         normals_np = point_cloud[:, 3:6].astype(np.float32)
 
-        # 转为 torch 张量（CPU）
-        self.coords = torch.from_numpy(coords_np)       # [N,3] float32
-        self.normals = torch.from_numpy(normals_np)     # [N,3] float32
+        # [修改] 转为 torch 张量并立即移动到 GPU
+        self.coords = torch.from_numpy(coords_np).to(self.device)       # [N,3] float32 @ GPU
+        self.normals = torch.from_numpy(normals_np).to(self.device)     # [N,3] float32 @ GPU
 
         if point_cloud.shape[1] > 6:
             is_def_np = point_cloud[:, 6:7].astype(np.int32)
@@ -24,15 +29,35 @@ class PointCloud(Dataset):
         else:
             is_def_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
 
-        self.is_deform = torch.from_numpy(is_def_np)    # [N,1] int32
+        # [修改] 移动到 GPU
+        self.is_deform = torch.from_numpy(is_def_np).to(self.device)    # [N,1] int32 @ GPU
 
         # 预先分离索引（torch 张量）
+        # [修改] 操作都在 GPU 上进行
         self.inner_indices = torch.nonzero(self.is_deform.view(-1) == 1, as_tuple=False).view(-1)
         self.surface_indices = torch.nonzero(self.is_deform.view(-1) == 0, as_tuple=False).view(-1)
         print(f"采样策略初始化: 关键点 {self.inner_indices.numel()} 个, 普通点 {self.surface_indices.numel()} 个")
 
         self.inner_ratio = inner_ratio
         self.on_surface_points = int(on_surface_points)
+
+        # ==========================================
+        # [新增] 计算局部 Sigma (Local Density)
+        # ==========================================
+        print("Computing local sigmas via KDTree (k=50)...")
+        # KDTree 依旧使用 numpy 在 CPU 上构建，这部分通常很快且只运行一次
+        ptree = cKDTree(coords_np)
+        sigma_set = []
+        # 分块计算以防内存爆掉
+        for p in np.array_split(coords_np, 100, axis=0):
+            # 查询 51 个最近邻 (第一个是自己)，取第 51 个的距离
+            d, _ = ptree.query(p, k=50 + 1)
+            sigma_set.append(d[:, -1])
+        
+        # [修改] 将结果 numpy 拼接后转 tensor 并移动到 GPU
+        self.local_sigma = torch.from_numpy(np.concatenate(sigma_set)).float().to(self.device) # [N] @ GPU
+        print("Finished computing local sigmas.")
+
 
     def __len__(self):
         # 一个 epoch 的 step 数由外部控制；这里给出保守值
@@ -43,47 +68,82 @@ class PointCloud(Dataset):
         # gen = torch.Generator()
         # gen.manual_seed(torch.initial_seed())
 
+        # ---------------------------------------------------
+        # 1. 表面点采样 (On-Surface) - 保持原样
+        # ---------------------------------------------------
         num_inner = int(self.on_surface_points * self.inner_ratio)
         num_surface = self.on_surface_points - num_inner
 
-        # 1) 关键点采样（允许重复）
+        # 1.1) 关键点采样（允许重复）
         if self.inner_indices.numel() > 0 and num_inner > 0:
-            # [修改] 移除 generator=gen
-            inner_sel = self.inner_indices[torch.randint(0, self.inner_indices.numel(), (num_inner,))] 
+            # [修改] randint 直接在 device 上运行，比 CPU 快
+            rand_idx = torch.randint(0, self.inner_indices.numel(), (num_inner,), device=self.device)
+            inner_sel = self.inner_indices[rand_idx] 
         else:
-            inner_sel = torch.empty(0, dtype=torch.long)
-            num_surface = self.on_surface_points
+            inner_sel = torch.empty(0, dtype=torch.long, device=self.device)
+            num_surface = self.on_surface_points # 补齐
 
-        # 2) 普通点采样（不重复）
+        # 1.2) 普通点采样（不重复）
         if self.surface_indices.numel() >= num_surface:
-            # [修改] 移除 generator=gen
-            perm = torch.randperm(self.surface_indices.numel())
+            # [修改] randperm 在 device 上运行
+            perm = torch.randperm(self.surface_indices.numel(), device=self.device)
             surface_sel = self.surface_indices[perm[:num_surface]]
         else:
-            # [修改] 移除 generator=gen
-            surface_sel = self.surface_indices[torch.randint(0, self.surface_indices.numel(), (num_surface,))]
+            rand_idx = torch.randint(0, self.surface_indices.numel(), (num_surface,), device=self.device)
+            surface_sel = self.surface_indices[rand_idx]
 
-        # 3) 合并索引并切片
+        # 1.3) 合并索引并提取数据
         sel = torch.cat([inner_sel, surface_sel], dim=0)
 
+        # 索引选择操作完全在 GPU 上进行
         on_coords = self.coords.index_select(0, sel)
         on_normals = self.normals.index_select(0, sel)
         on_is_def = self.is_deform.index_select(0, sel).to(torch.int32)
+        
+        # [新增] 获取对应点的 Sigma
+        on_sigmas = self.local_sigma.index_select(0, sel).unsqueeze(-1) # [M, 1]
 
-        # Off-surface 采样
-        off_n = self.on_surface_points
-        off_n = int(off_n)
-        # [修改] 移除 generator=gen
-        off_coords = torch.empty((off_n, 3), dtype=torch.float32).uniform_(-1.0, 1.0)
-        off_normals = torch.full((off_n, 3), -1.0, dtype=torch.float32)
-        off_is_def = torch.zeros((off_n, 1), dtype=torch.int32)
+        # ---------------------------------------------------
+        # 2. 离面点采样 (Off-Surface) - 修改逻辑
+        # ---------------------------------------------------
+        
+        # A. 局部采样 (Local Perturbation)：在表面点附近加高斯噪声
+        # 这些点用于学习 Manifold 附近的 Eikonal 约束
+        # [加速] randn_like 会自动继承 on_coords 的设备(GPU)，完全并行计算
+        local_perturb_coords = on_coords + (torch.randn_like(on_coords) * on_sigmas)
+        
+        # B. 全局采样 (Global Uniform)：减少采样数 (1/8)
+        # 这些点用于探索整个空间
+        num_global = self.on_surface_points // 8
+        # [修改] 必须指定 device=self.device，否则默认在 CPU 创建然后复制，浪费时间
+        global_coords = torch.empty((num_global, 3), dtype=torch.float32, device=self.device).uniform_(-1.0, 1.0)
+        
+        # ---------------------------------------------------
+        # 3. 组装数据
+        # ---------------------------------------------------
+        
+        # 为了保持维度一致，对于非表面点，法向和 SDF 设为无效值(-1)
+        # Local 点
+        local_normals = torch.full_like(local_perturb_coords, -1.0) # 继承 GPU
+        local_is_def = torch.zeros((local_perturb_coords.shape[0], 1), dtype=torch.int32, device=self.device)
+        
+        # Global 点
+        global_normals = torch.full_like(global_coords, -1.0) # 继承 GPU
+        global_is_def = torch.zeros((num_global, 1), dtype=torch.int32, device=self.device)
 
-        # 拼接
-        coords = torch.cat([on_coords, off_coords], dim=0)              # [2M,3]
-        normals = torch.cat([on_normals, off_normals], dim=0)           # [2M,3]
-        is_deform = torch.cat([on_is_def, off_is_def], dim=0)           # [2M,1]
+        # 拼接所有坐标: [On-Surface, Local-Perturbed, Global-Uniform]
+        # 所有张量都在 GPU 上，cat 操作非常快
+        coords = torch.cat([on_coords, local_perturb_coords, global_coords], dim=0)
+        normals = torch.cat([on_normals, local_normals, global_normals], dim=0)
+        is_deform = torch.cat([on_is_def, local_is_def, global_is_def], dim=0)
 
-        sdf = torch.zeros((self.on_surface_points + off_n, 1), dtype=torch.float32)
+        # 构造 SDF 标签
+        # On-Surface = 0
+        # Off-Surface (Local + Global) = -1 (Dummy value)
+        
+        # [修改] 直接在 GPU 上创建 zeros
+        sdf = torch.zeros((coords.shape[0], 1), dtype=torch.float32, device=self.device)
+        # 将非表面点的 SDF 设为 -1 (假设 Loss 函数会根据 sdf==0 区分表面点，或忽略 -1)
         sdf[self.on_surface_points:, :] = -1.0
 
         return {'coords': coords}, {'sdf': sdf, 'normals': normals, 'is_deform': is_deform}

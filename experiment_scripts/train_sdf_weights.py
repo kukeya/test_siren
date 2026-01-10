@@ -7,7 +7,7 @@ import os
 import torch
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
-import dataio_with_weights_gpu as dataio_with_weights_gpu, utils, training, modules
+import dataio_with_weights_gpu as dataio_with_weights, utils, training, modules
 import configargparse
 import gpu_utils
 import importlib  # [新增]
@@ -76,7 +76,7 @@ if device.type != 'cuda':
     raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights_gpu.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
+sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
 dataloader = DataLoader(
     sdf_dataset,
     shuffle=True,

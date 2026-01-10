@@ -39,27 +39,29 @@ class PointCloud(Dataset):
         return max(1, self.coords.shape[0] // self.on_surface_points)
 
     def __getitem__(self, idx):
-        # 使用每个 worker 的初始种子，保证并行采样可复现
-        gen = torch.Generator()
-        gen.manual_seed(torch.initial_seed())
+        # [删除] 不要每次都重置种子
+        # gen = torch.Generator()
+        # gen.manual_seed(torch.initial_seed())
 
         num_inner = int(self.on_surface_points * self.inner_ratio)
         num_surface = self.on_surface_points - num_inner
 
         # 1) 关键点采样（允许重复）
         if self.inner_indices.numel() > 0 and num_inner > 0:
-            inner_sel = self.inner_indices[torch.randint(0, self.inner_indices.numel(), (num_inner,), generator=gen)]
+            # [修改] 移除 generator=gen
+            inner_sel = self.inner_indices[torch.randint(0, self.inner_indices.numel(), (num_inner,))] 
         else:
             inner_sel = torch.empty(0, dtype=torch.long)
             num_surface = self.on_surface_points
 
         # 2) 普通点采样（不重复）
         if self.surface_indices.numel() >= num_surface:
-            perm = torch.randperm(self.surface_indices.numel(), generator=gen)
+            # [修改] 移除 generator=gen
+            perm = torch.randperm(self.surface_indices.numel())
             surface_sel = self.surface_indices[perm[:num_surface]]
         else:
-            # 少于需求时退化为允许重复
-            surface_sel = self.surface_indices[torch.randint(0, self.surface_indices.numel(), (num_surface,), generator=gen)]
+            # [修改] 移除 generator=gen
+            surface_sel = self.surface_indices[torch.randint(0, self.surface_indices.numel(), (num_surface,))]
 
         # 3) 合并索引并切片
         sel = torch.cat([inner_sel, surface_sel], dim=0)
@@ -68,9 +70,11 @@ class PointCloud(Dataset):
         on_normals = self.normals.index_select(0, sel)
         on_is_def = self.is_deform.index_select(0, sel).to(torch.int32)
 
-        # Off-surface 采样（CPU 上生成，交给 DataLoader pin_memory 后再搬 GPU）
+        # Off-surface 采样
         off_n = self.on_surface_points
-        off_coords = torch.empty((off_n, 3), dtype=torch.float32).uniform_(-1.0, 1.0, generator=gen)
+        off_n = int(off_n)
+        # [修改] 移除 generator=gen
+        off_coords = torch.empty((off_n, 3), dtype=torch.float32).uniform_(-1.0, 1.0)
         off_normals = torch.full((off_n, 3), -1.0, dtype=torch.float32)
         off_is_def = torch.zeros((off_n, 1), dtype=torch.int32)
 

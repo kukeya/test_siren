@@ -2,7 +2,8 @@ import torch
 import diff_operators
 import torch.nn.functional as F
 
-def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, grad_weight=5e1):
+def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, grad_weight=5e1,
+        thin_plate_weight=0.0):
     '''
        x: batch of input coordinates
        y: usually the output of the trial_soln function
@@ -23,9 +24,14 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
     grad_constraint = torch.abs(gradient.norm(dim=-1) - 1)
     
 
-    # Exp      # Lapl
-    # -----------------
-    return {'sdf': (sdf_constraint ** 2).mean() * 1e3 * sdf_weight, ## L2 loss for SDF
-            'inter': inter_constraint.mean() * inter_weight, 
-            'normal_constraint': normal_constraint.mean() * normal_weight,
-            'grad_constraint': grad_constraint.mean() * grad_weight}
+    losses = {'sdf': (sdf_constraint ** 2).mean() * 1e3 * sdf_weight, ## L2 loss for SDF
+              'inter': inter_constraint.mean() * inter_weight, 
+              'normal_constraint': normal_constraint.mean() * normal_weight,
+              'grad_constraint': grad_constraint.mean() * grad_weight}
+
+    if thin_plate_weight > 0.0:
+        hessian, _ = diff_operators.hessian(pred_sdf, coords)
+        thin_plate_loss = (hessian ** 2).mean() * thin_plate_weight
+        losses['thin_plate'] = thin_plate_loss
+
+    return losses

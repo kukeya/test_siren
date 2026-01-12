@@ -49,6 +49,9 @@ p.add_argument('--sdf_weight', type=float, default=3e3, help='Weight for SDF los
 p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter loss')
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
+p.add_argument('--thin_plate_weight', type=float, default=1.0, help='Weight for thin-plate bending loss')
+p.add_argument('--thin_plate_epochs', type=int, default=100,
+               help='Extra epochs at the end to ramp up thin-plate loss')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
@@ -77,16 +80,16 @@ if device.type != 'cuda':
 
 # [修改] 传入 negative_sample_path
 sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
-dataloader = DataLoader(
-    sdf_dataset,
-    shuffle=True,
-    batch_size=1,
-    pin_memory=True,           # 允许非阻塞搬运
-    num_workers=8,             # 根据CPU核心调整
-    persistent_workers=True,
-    prefetch_factor=4
-)
-# dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=4)
+# dataloader = DataLoader(
+#     sdf_dataset,
+#     shuffle=True,
+#     batch_size=1,
+#     pin_memory=True,           # 允许非阻塞搬运
+#     num_workers=8,             # 根据CPU核心调整
+#     persistent_workers=True,
+#     prefetch_factor=4
+# )
+dataloader = DataLoader(sdf_dataset, shuffle=True, batch_size=1, pin_memory=False, num_workers=0)
 
 
 # Define the model.
@@ -118,7 +121,8 @@ loss_fn = partial(
     sdf_weight=opt.sdf_weight,
     inter_weight=opt.inter_weight,
     normal_weight=opt.normal_weight,
-    grad_weight=opt.grad_weight
+    grad_weight=opt.grad_weight,
+    thin_plate_weight=opt.thin_plate_weight
 )
 summary_fn = utils.write_sdf_summary
 
@@ -128,7 +132,23 @@ print(f"[Train] Log Dir arg: {opt.log_dir}")
 print(f"[Train] Using loss module: {loss_module_name}")  # [新增]
 print(f"--------------------------------------------------")
 
-training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
+
+steps_per_epoch = len(dataloader)
+thin_plate_steps = max(opt.thin_plate_epochs * steps_per_epoch, 1)
+thin_plate_start = opt.num_epochs * steps_per_epoch
+
+def thin_plate_schedule(step):
+    if step < thin_plate_start:
+        return 0.0
+    return min((step - thin_plate_start) / thin_plate_steps, 1.0)
+
+loss_schedules = None
+total_epochs = opt.num_epochs
+if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
+    loss_schedules = {'thin_plate': thin_plate_schedule}
+    total_epochs += opt.thin_plate_epochs
+
+training.train(model=model, train_dataloader=dataloader, epochs=total_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True, use_lr_decay=True)
+               clip_grad=True, use_lr_decay=opt.use_lr_decay, loss_schedules=loss_schedules)

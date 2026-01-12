@@ -99,6 +99,7 @@ class PointCloud(Dataset):
         on_coords = self.coords.index_select(0, sel)
         on_normals = self.normals.index_select(0, sel)
         on_is_def = self.is_deform.index_select(0, sel).to(torch.int32)
+        on_thin_plate_mask = on_is_def.float()
         
         # [新增] 获取对应点的 Sigma
         on_sigmas = self.local_sigma.index_select(0, sel).unsqueeze(-1) # [M, 1]
@@ -126,16 +127,19 @@ class PointCloud(Dataset):
         # Local 点
         local_normals = torch.full_like(local_perturb_coords, -1.0) # 继承 GPU
         local_is_def = torch.zeros((local_perturb_coords.shape[0], 1), dtype=torch.int32, device=self.device)
+        local_thin_plate_mask = on_thin_plate_mask
         
         # Global 点
         global_normals = torch.full_like(global_coords, -1.0) # 继承 GPU
         global_is_def = torch.zeros((num_global, 1), dtype=torch.int32, device=self.device)
+        global_thin_plate_mask = torch.zeros((num_global, 1), dtype=torch.float32, device=self.device)
 
         # 拼接所有坐标: [On-Surface, Local-Perturbed, Global-Uniform]
         # 所有张量都在 GPU 上，cat 操作非常快
         coords = torch.cat([on_coords, local_perturb_coords, global_coords], dim=0)
         normals = torch.cat([on_normals, local_normals, global_normals], dim=0)
         is_deform = torch.cat([on_is_def, local_is_def, global_is_def], dim=0)
+        thin_plate_mask = torch.cat([on_thin_plate_mask, local_thin_plate_mask, global_thin_plate_mask], dim=0)
 
         # 构造 SDF 标签
         # On-Surface = 0
@@ -146,4 +150,5 @@ class PointCloud(Dataset):
         # 将非表面点的 SDF 设为 -1 (假设 Loss 函数会根据 sdf==0 区分表面点，或忽略 -1)
         sdf[self.on_surface_points:, :] = -1.0
 
-        return {'coords': coords}, {'sdf': sdf, 'normals': normals, 'is_deform': is_deform}
+        return {'coords': coords}, {'sdf': sdf, 'normals': normals, 'is_deform': is_deform,
+                                    'thin_plate_mask': thin_plate_mask}

@@ -46,7 +46,14 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
         det_val = torch.det(matrix)
         gaussian_curv = -det_val / (grad_norm.squeeze(-1) ** 4 + 1e-8)
         smoothness = 4.0 * mean_curv.pow(2) - 2.0 * gaussian_curv.unsqueeze(-1)
-        thin_plate_loss = smoothness.mean() * thin_plate_weight
+        thin_plate_mask = gt.get('thin_plate_mask', None)
+        if thin_plate_mask is not None:
+            thin_plate_mask = thin_plate_mask.float()
+            weight_sum = thin_plate_mask.sum().clamp_min(1e-8)
+            thin_plate_loss = (smoothness * thin_plate_mask).sum() / weight_sum
+        else:
+            thin_plate_loss = smoothness.mean()
+        thin_plate_loss = thin_plate_loss * thin_plate_weight
         losses['thin_plate'] = thin_plate_loss
 
     return losses

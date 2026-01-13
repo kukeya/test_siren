@@ -49,13 +49,14 @@ p.add_argument('--sdf_weight', type=float, default=3e3, help='Weight for SDF los
 p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter loss')
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
-p.add_argument('--thin_plate_weight', type=float, default=1.0, help='Weight for thin-plate bending loss')
+p.add_argument('--thin_plate_weight', type=float, default=1e-5, help='Weight for thin-plate bending loss')
 p.add_argument('--thin_plate_epochs', type=int, default=100,
                help='Extra epochs at the end to ramp up thin-plate loss')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
 p.add_argument('--log_dir', type=str, default='', help='Direct path to save logs and checkpoints')
+p.add_argument('--use_lr_decay', action='store_true', help='Use learning rate decay during training')
 
 # [新增] 选择损失版本：默认 L1，可显式 --L2
 loss_group = p.add_mutually_exclusive_group()

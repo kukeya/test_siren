@@ -1,4 +1,5 @@
 import argparse
+from ast import arg
 import os
 import sys
 import subprocess
@@ -46,7 +47,7 @@ def run_siren_step(args):
         
         # 这里的名字不再用于路径拼接，仅用于打印日志
         "--experiment_name", "siren_loop", 
-        
+        "--use_lr_decay",
         "--num_epochs", str(args.epochs),
         "--epochs_til_ckpt", "1000",
         "--steps_til_summary", "1000"
@@ -56,6 +57,10 @@ def run_siren_step(args):
     
     if prev_ckpt and prev_ckpt.exists():
         train_cmd.extend(["--checkpoint_path", str(prev_ckpt)])
+
+    if args.thin_plate_epochs and args.thin_plate_weight:
+        train_cmd.extend(["--thin_plate_epochs", str(args.thin_plate_epochs)])
+        train_cmd.extend(["--thin_plate_weight", str(args.thin_plate_weight)])
     
     sys.stdout.flush()
     ret = subprocess.call(train_cmd)
@@ -79,7 +84,7 @@ def run_siren_step(args):
     test_cmd = [
         python_exe, test_script,
         "--checkpoint_path", str(final_model),
-        "--output_ply", str(output_ply),    
+        "--output_ply", str(output_ply),
         "--experiment_name", "meshing"
     ]
     
@@ -101,6 +106,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--epochs", type=int, default=1500)
     parser.add_argument('--L2', action='store_true', help='Use loss_function.loss_functionsL2 (L2)')
+    parser.add_argument("--thin_plate_epochs", type=int, default=0, help="薄板能量正则化训练 Epochs (0 表示不使用)")
+    parser.add_argument("--thin_plate_weight", type=float, default=0.0, help="薄板能量正则化权重")
     
     args = parser.parse_args()
     run_siren_step(args)

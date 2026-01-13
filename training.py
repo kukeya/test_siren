@@ -40,9 +40,18 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
     if os.path.exists(model_dir):
         # val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
         # if val == 'y':
-        shutil.rmtree(model_dir)
+        # shutil.rmtree(model_dir)
+        # 只删除子目录，不删除根目录
+        checkpoints_dir_temp = os.path.join(model_dir, 'checkpoints')
+        summaries_dir_temp = os.path.join(model_dir, 'summaries')
+        
+        if os.path.exists(checkpoints_dir_temp):
+            shutil.rmtree(checkpoints_dir_temp)
+        if os.path.exists(summaries_dir_temp):
+            shutil.rmtree(summaries_dir_temp)
 
-    os.makedirs(model_dir)
+            
+    os.makedirs(model_dir, exist_ok=True)
 
     summaries_dir = os.path.join(model_dir, 'summaries')
     utils.cond_mkdir(summaries_dir)

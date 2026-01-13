@@ -3,7 +3,7 @@ import diff_operators
 import torch.nn.functional as F
 
 def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, grad_weight=5e1,
-        thin_plate_weight=0.0):    
+        thin_plate_weight=0.0):
     '''
        x: batch of input coordinates
        y: usually the output of the trial_soln function

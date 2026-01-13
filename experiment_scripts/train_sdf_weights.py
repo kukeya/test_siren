@@ -49,7 +49,7 @@ p.add_argument('--sdf_weight', type=float, default=3e3, help='Weight for SDF los
 p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter loss')
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
-p.add_argument('--thin_plate_weight', type=float, default=1e-5, help='Weight for thin-plate bending loss')
+p.add_argument('--thin_plate_weight', type=float, default=0.0, help='Weight for thin-plate bending loss')
 p.add_argument('--thin_plate_epochs', type=int, default=100,
                help='Extra epochs at the end to ramp up thin-plate loss')
 
@@ -123,7 +123,7 @@ loss_fn = partial(
     inter_weight=opt.inter_weight,
     normal_weight=opt.normal_weight,
     grad_weight=opt.grad_weight,
-    thin_plate_weight=opt.thin_plate_weight
+    thin_plate_weight=0.0
 )
 summary_fn = utils.write_sdf_summary
 
@@ -134,22 +134,45 @@ print(f"[Train] Using loss module: {loss_module_name}")  # [新增]
 print(f"--------------------------------------------------")
 
 
-steps_per_epoch = len(dataloader)
-thin_plate_steps = max(opt.thin_plate_epochs * steps_per_epoch, 1)
-thin_plate_start = opt.num_epochs * steps_per_epoch
+# steps_per_epoch = len(dataloader)
+# thin_plate_steps = max(opt.thin_plate_epochs * steps_per_epoch, 1)
+# thin_plate_start = opt.num_epochs * steps_per_epoch
 
-def thin_plate_schedule(step):
-    if step < thin_plate_start:
-        return 0.0
-    return min((step - thin_plate_start) / thin_plate_steps, 1.0)
+# def thin_plate_schedule(step):
+#     if step < thin_plate_start:
+#         return 0.0
+#     return min((step - thin_plate_start) / thin_plate_steps, 1.0)
 
-loss_schedules = None
-total_epochs = opt.num_epochs
-if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
-    loss_schedules = {'thin_plate': thin_plate_schedule}
-    total_epochs += opt.thin_plate_epochs
+# loss_schedules = None
+# total_epochs = opt.num_epochs
+# if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
+#     loss_schedules = {'thin_plate': thin_plate_schedule}
+#     total_epochs += opt.thin_plate_epochs
 
-training.train(model=model, train_dataloader=dataloader, epochs=total_epochs, lr=opt.lr,
+stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
+training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
-               model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True, use_lr_decay=opt.use_lr_decay, loss_schedules=loss_schedules)
+               model_dir=stage1_dir, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
+               clip_grad=True, use_lr_decay=True, loss_schedules=None)
+
+# tsp 小 epochs 额外训练
+if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
+
+    loss_fn_thin = partial(
+        loss_module.sdf,
+        sdf_weight=opt.sdf_weight,
+        inter_weight=opt.inter_weight,
+        normal_weight=opt.normal_weight,
+        grad_weight=opt.grad_weight,
+        thin_plate_weight=opt.thin_plate_weight
+    )
+    print(f"[Train] Thin-plate fine-tune: {opt.thin_plate_epochs} epochs, weight={opt.thin_plate_weight}")
+    
+    # 使用子目录，避免删除第一阶段的文件
+    training.train(model=model, train_dataloader=dataloader, epochs=opt.thin_plate_epochs, lr=opt.lr,
+                   steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
+                   model_dir=root_path, loss_fn=loss_fn_thin, summary_fn=summary_fn, double_precision=False,
+                   clip_grad=True, use_lr_decay=True, loss_schedules=None)
+
+    
+    print(f"[Train] Stage2 final model saved to {os.path.join(root_path, 'checkpoints', 'model_final.pth')}")

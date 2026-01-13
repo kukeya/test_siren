@@ -57,6 +57,8 @@ p.add_argument('--hidden_features', type=int, default=256, help='Number of hidde
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
 p.add_argument('--log_dir', type=str, default='', help='Direct path to save logs and checkpoints')
 p.add_argument('--use_lr_decay', action='store_true', help='Use learning rate decay during training')
+p.add_argument('--enable_thin_plate', action='store_true', 
+               help='Enable thin-plate smoothing for this training run')
 
 # [新增] 选择损失版本：默认 L1，可显式 --L2
 loss_group = p.add_mutually_exclusive_group()
@@ -117,6 +119,7 @@ model.cuda()
 loss_module_name = 'loss_function.loss_functions_L2' if opt.L2 else 'loss_function.loss_functions'
 loss_module = importlib.import_module(loss_module_name)
 from functools import partial
+import shutil
 loss_fn = partial(
     loss_module.sdf,
     sdf_weight=opt.sdf_weight,
@@ -149,15 +152,25 @@ print(f"--------------------------------------------------")
 #     loss_schedules = {'thin_plate': thin_plate_schedule}
 #     total_epochs += opt.thin_plate_epochs
 
-stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
+# stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
 training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
-               model_dir=stage1_dir, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
+               model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
                clip_grad=True, use_lr_decay=True, loss_schedules=None)
 
 # tsp 小 epochs 额外训练
-if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
+if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0 and opt.enable_thin_plate:
 
+    # 先把 checkpoints 和 summaries 移动到子目录，避免覆盖
+    stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
+    os.makedirs(stage1_dir, exist_ok=True)
+    # Move stage1 checkpoints and summaries
+    for item in ['checkpoints', 'summaries']:
+        src = os.path.join(root_path, item)
+        dst = os.path.join(stage1_dir, item)
+        if os.path.exists(src):
+            shutil.move(src, dst)
+    
     loss_fn_thin = partial(
         loss_module.sdf,
         sdf_weight=opt.sdf_weight,
@@ -173,6 +186,3 @@ if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
                    steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                    model_dir=root_path, loss_fn=loss_fn_thin, summary_fn=summary_fn, double_precision=False,
                    clip_grad=True, use_lr_decay=True, loss_schedules=None)
-
-    
-    print(f"[Train] Stage2 final model saved to {os.path.join(root_path, 'checkpoints', 'model_final.pth')}")

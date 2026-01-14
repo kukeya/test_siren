@@ -49,7 +49,7 @@ p.add_argument('--sdf_weight', type=float, default=3e3, help='Weight for SDF los
 p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter loss')
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
-p.add_argument('--thin_plate_weight', type=float, default=1.0, help='Weight for thin-plate bending loss')
+p.add_argument('--thin_plate_weight', type=float, default=0.0, help='Weight for thin-plate bending loss')
 p.add_argument('--thin_plate_epochs', type=int, default=100,
                help='Extra epochs at the end to ramp up thin-plate loss')
 

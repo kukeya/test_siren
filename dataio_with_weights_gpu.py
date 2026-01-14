@@ -51,7 +51,7 @@ class PointCloud(Dataset):
         # 分块计算以防内存爆掉
         for p in np.array_split(coords_np, 100, axis=0):
             # 查询 51 个最近邻 (第一个是自己)，取第 51 个的距离
-            d, _ = ptree.query(p, k=50 + 1)
+            d, _ = ptree.query(p, k= 5 + 1)
             sigma_set.append(d[:, -1])
         
         # [修改] 将结果 numpy 拼接后转 tensor 并移动到 GPU
@@ -111,7 +111,14 @@ class PointCloud(Dataset):
         # A. 局部采样 (Local Perturbation)：在表面点附近加高斯噪声
         # 这些点用于学习 Manifold 附近的 Eikonal 约束
         # [加速] randn_like 会自动继承 on_coords 的设备(GPU)，完全并行计算
-        local_perturb_coords = on_coords + (torch.randn_like(on_coords) * on_sigmas)
+        # local_perturb_coords = on_coords + (torch.randn_like(on_coords) * on_sigmas)
+        # 1. 取随机步长，正态分布
+        step = torch.randn((on_coords.shape[0], 1), device=self.device) * on_sigmas
+        # 2. 沿法线移动
+        local_perturb_coords = on_coords + on_normals * step
+        # 3. 再加一点点非常微小的各向同性噪声，防止过拟合到直线上
+        local_perturb_coords += torch.randn_like(on_coords) * (on_sigmas * 0.1)
+
         
         # B. 全局采样 (Global Uniform)：减少采样数 (1/8)
         # 这些点用于探索整个空间

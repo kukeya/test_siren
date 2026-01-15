@@ -81,18 +81,20 @@ class PointCloud(Dataset):
         off_is_def = torch.zeros((off_n, 1), dtype=torch.int32, device=self.device)
         # on_thin_plate_mask = on_is_def.float()
         # 新增
-        if self.deform_coords is not None and self.thin_plate_sigma is not None:
-            dist_min = torch.cdist(on_coords, self.deform_coords).min(dim=1).values
-            on_thin_plate_mask = torch.exp(-0.5 * (dist_min / self.thin_plate_sigma) ** 2).unsqueeze(-1)
-            if self.thin_plate_radius is not None:
-                on_thin_plate_mask = torch.where(
-                    dist_min.unsqueeze(-1) <= self.thin_plate_radius,
-                    on_thin_plate_mask,
-                    torch.zeros_like(on_thin_plate_mask),
-                )
-        else:
-            on_thin_plate_mask = on_is_def.float()
-
+        # if self.deform_coords is not None and self.thin_plate_sigma is not None:
+        #     dist_min = torch.cdist(on_coords, self.deform_coords).min(dim=1).values
+        #     on_thin_plate_mask = torch.exp(-0.5 * (dist_min / self.thin_plate_sigma) ** 2).unsqueeze(-1)
+        #     if self.thin_plate_radius is not None:
+        #         on_thin_plate_mask = torch.where(
+        #             dist_min.unsqueeze(-1) <= self.thin_plate_radius,
+        #             on_thin_plate_mask,
+        #             torch.zeros_like(on_thin_plate_mask),
+        #         )
+        # else:
+        #     on_thin_plate_mask = on_is_def.float()
+        
+        # 全局的thin-plate mask
+        on_thin_plate_mask = torch.ones((on_coords.shape[0], 1), dtype=torch.float32, device=self.device)
         global_thin_plate_mask = torch.zeros((off_n, 1), dtype=torch.float32, device=self.device)
 
         # 拼接（全在 GPU 上）

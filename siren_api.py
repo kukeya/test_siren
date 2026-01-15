@@ -63,7 +63,9 @@ def run_siren_step(args):
         train_cmd.extend(["--thin_plate_weight", str(args.thin_plate_weight)])
 
     if args.enable_thin_plate:
-        train_cmd.extend("--enable_thin_plate")
+        train_cmd.extend(["--enable_thin_plate"])
+
+    print(" ".join(train_cmd))
     
     sys.stdout.flush()
     ret = subprocess.call(train_cmd)
@@ -92,6 +94,8 @@ def run_siren_step(args):
     ]
     
     print("\n[SirenAPI] Running Meshing...")
+    # 打印cmd
+    print(" ".join(test_cmd))
     sys.stdout.flush()
     ret = subprocess.call(test_cmd)
 
@@ -112,7 +116,7 @@ if __name__ == "__main__":
     parser.add_argument("--thin_plate_epochs", type=int, default=0, help="薄板能量正则化训练 Epochs (0 表示不使用)")
     parser.add_argument("--thin_plate_weight", type=float, default=0.0, help="薄板能量正则化权重")
 
-    parser.add_argument("--enable_thin_plate", type=float, default=0.0, help="薄板能量正则化权重")
+    parser.add_argument("--enable_thin_plate", action='store_true', help="薄板能量正则化权重")
     
     
     args = parser.parse_args()

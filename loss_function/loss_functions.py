@@ -53,6 +53,7 @@ def sdf(model_output, gt, sdf_weight=3e3, inter_weight=1e2, normal_weight=1e2, g
             thin_plate_loss = (smoothness * thin_plate_mask).sum() / weight_sum
         else:
             thin_plate_loss = smoothness.mean()
+
         thin_plate_loss = thin_plate_loss * thin_plate_weight
         losses['thin_plate'] = thin_plate_loss
 

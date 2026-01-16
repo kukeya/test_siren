@@ -35,7 +35,7 @@ class SingleBVPNet(MetaModule):
                                                     downsample=kwargs.get('downsample', False))
         self.net = FCBlock(in_features=in_features, out_features=out_features, num_hidden_layers=num_hidden_layers,
                            hidden_features=hidden_features, outermost_linear=True, nonlinearity=type)
-        print(self)
+        # print(self)  # 已注释：不打印模型结构
 
     def forward(self, model_input, params=None):
         if params is None:

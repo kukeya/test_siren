@@ -113,8 +113,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--epochs", type=int, default=1500)
     parser.add_argument('--L2', action='store_true', help='Use loss_function.loss_functionsL2 (L2)')
-    parser.add_argument("--thin_plate_epochs", type=int, default=0, help="薄板能量正则化训练 Epochs (0 表示不使用)")
-    parser.add_argument("--thin_plate_weight", type=float, default=0.0, help="薄板能量正则化权重")
+    parser.add_argument("--thin_plate_epochs", type=int, default=100, help="薄板能量正则化训练 Epochs (0 表示不使用)")
+    parser.add_argument("--thin_plate_weight", type=float, default=5e-3, help="薄板能量正则化权重")
 
     parser.add_argument("--enable_thin_plate", action='store_true', help="薄板能量正则化权重")
     

@@ -74,6 +74,18 @@ p.add_argument('--smooth_normal_max_points', type=int, default=2048,
                help='Max editable points used for smoothness per batch')
 p.add_argument('--smooth_normal_ramp_epochs', type=int, default=0,
                help='Ramp epochs for smoothness weight after base epochs')
+p.add_argument('--smooth_position_weight', type=float, default=0.0,
+               help='Weight for deform-only position smoothness loss')
+p.add_argument('--smooth_position_k', type=int, default=16,
+               help='kNN size for position smoothness')
+p.add_argument('--smooth_position_radius', type=float, default=None,
+               help='Optional radius cutoff for position smoothness (same units as coords)')
+p.add_argument('--smooth_position_use_projection', action='store_true',
+               help='Project editable points to sdf=0 before position smoothing')
+p.add_argument('--smooth_position_max_points', type=int, default=2048,
+               help='Max editable points used for position smoothing per batch')
+p.add_argument('--smooth_position_ramp_epochs', type=int, default=0,
+               help='Ramp epochs for position smoothing weight after base epochs')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
@@ -160,6 +172,11 @@ loss_fn = partial(
     smooth_normal_use_projection=opt.smooth_normal_use_projection,
     smooth_normal_feat_sigma=opt.smooth_normal_feat_sigma,
     smooth_normal_max_points=opt.smooth_normal_max_points,
+    smooth_position_weight=opt.smooth_position_weight,
+    smooth_position_k=opt.smooth_position_k,
+    smooth_position_radius=opt.smooth_position_radius,
+    smooth_position_use_projection=opt.smooth_position_use_projection,
+    smooth_position_max_points=opt.smooth_position_max_points,
 )
 summary_fn = utils.write_sdf_summary
 
@@ -196,6 +213,18 @@ if opt.smooth_normal_weight > 0.0 and opt.smooth_normal_ramp_epochs > 0:
     loss_schedules = loss_schedules or {}
     loss_schedules['smooth_normal'] = smooth_normal_schedule
     total_epochs += opt.smooth_normal_ramp_epochs
+if opt.smooth_position_weight > 0.0 and opt.smooth_position_ramp_epochs > 0:
+    smooth_pos_steps = max(opt.smooth_position_ramp_epochs * steps_per_epoch, 1)
+    smooth_pos_start = opt.num_epochs * steps_per_epoch
+
+    def smooth_position_schedule(step):
+        if step < smooth_pos_start:
+            return 0.0
+        return min((step - smooth_pos_start) / smooth_pos_steps, 1.0)
+
+    loss_schedules = loss_schedules or {}
+    loss_schedules['smooth_position'] = smooth_position_schedule
+    total_epochs += opt.smooth_position_ramp_epochs
 
 training.train(model=model, train_dataloader=dataloader, epochs=total_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,

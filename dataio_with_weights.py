@@ -4,7 +4,18 @@ import torch
 import os
 
 class PointCloud(Dataset):
-    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None, inner_ratio=0.15):
+    def __init__(
+        self,
+        pointcloud_path,
+        on_surface_points,
+        keep_aspect_ratio=True,
+        negative_sample_path=None,
+        inner_ratio=0.15,
+        thin_plate_radius=0.05,
+        thin_plate_sigma=None,
+        thin_plate_radius_factor=3.0,
+        thin_plate_radius_samples=1024,
+    ):
         super().__init__()
 
         print("Loading point cloud")
@@ -59,6 +70,31 @@ class PointCloud(Dataset):
         self.inner_ratio = inner_ratio
 
         self.on_surface_points = on_surface_points
+        self.deform_coords = self.coords[self.inner_indices] if len(self.inner_indices) > 0 else None
+        self.thin_plate_radius = float(thin_plate_radius) if thin_plate_radius is not None else None
+        if self.thin_plate_radius is None or self.thin_plate_radius <= 0.0:
+            self.thin_plate_radius = self._estimate_thin_plate_radius(
+                factor=thin_plate_radius_factor,
+                max_samples=thin_plate_radius_samples,
+            )
+        if thin_plate_sigma is None and self.thin_plate_radius is not None:
+            thin_plate_sigma = self.thin_plate_radius / 2.0
+        self.thin_plate_sigma = float(thin_plate_sigma) if thin_plate_sigma is not None else None
+
+    def _estimate_thin_plate_radius(self, factor=3.0, max_samples=1024):
+        if self.deform_coords is None or self.deform_coords.shape[0] < 2:
+            return 0.05
+        sample_n = min(int(max_samples), self.deform_coords.shape[0])
+        sel = np.random.choice(self.deform_coords.shape[0], size=sample_n, replace=False)
+        sample = self.deform_coords[sel]
+        diff = sample[:, None, :] - self.deform_coords[None, :, :]
+        dist = np.linalg.norm(diff, axis=-1)
+        dist[dist < 1e-8] = np.inf
+        min_dist = dist.min(axis=1)
+        mean_min = np.mean(min_dist[np.isfinite(min_dist)])
+        if not np.isfinite(mean_min) or mean_min <= 0.0:
+            return 0.05
+        return float(factor * mean_min)
 
     def __len__(self):
         return self.coords.shape[0] // self.on_surface_points
@@ -88,6 +124,18 @@ class PointCloud(Dataset):
         # on_surface_sdf = self.sdf_gt[rand_idcs, :]
         # on_surface_weights = self.weights[rand_idcs, :]
         on_surface_is_deform = self.is_deform[rand_idcs, :]  # 新增
+        if self.deform_coords is not None and self.thin_plate_sigma is not None:
+            diff = on_surface_coords[:, None, :] - self.deform_coords[None, :, :]
+            dist_min = np.linalg.norm(diff, axis=-1).min(axis=1, keepdims=True)
+            on_thin_plate_mask = np.exp(-0.5 * (dist_min / self.thin_plate_sigma) ** 2)
+            if self.thin_plate_radius is not None:
+                on_thin_plate_mask = np.where(
+                    dist_min <= self.thin_plate_radius,
+                    on_thin_plate_mask,
+                    np.zeros_like(on_thin_plate_mask),
+                )
+        else:
+            on_thin_plate_mask = on_surface_is_deform.astype(np.float32)
 
 
         # --- 准备 Off-surface 数据 ---
@@ -110,11 +158,16 @@ class PointCloud(Dataset):
         
         # weights = np.concatenate((on_surface_weights, off_surface_weights), axis=0)
         is_deform = np.concatenate((on_surface_is_deform, off_surface_is_deform), axis=0)  # 新增
+        thin_plate_mask = np.concatenate(
+            (on_thin_plate_mask, np.zeros((off_surface_samples, 1), dtype=np.float32)),
+            axis=0,
+        )
 
 
         return {'coords': torch.from_numpy(coords).float()}, {'sdf': torch.from_numpy(sdf).float(),
-                                                              'normals': torch.from_numpy(normals).float(), 
-                                                              'is_deform': torch.from_numpy(is_deform).bool()}
+                                                              'normals': torch.from_numpy(normals).float(),
+                                                              'is_deform': torch.from_numpy(is_deform).bool(),
+                                                              'thin_plate_mask': torch.from_numpy(thin_plate_mask).float()}
 
 
 def get_mgrid(sidelen, dim=2):

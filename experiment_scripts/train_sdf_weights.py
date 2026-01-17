@@ -52,6 +52,28 @@ p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikona
 p.add_argument('--thin_plate_weight', type=float, default=1.0, help='Weight for thin-plate bending loss')
 p.add_argument('--thin_plate_epochs', type=int, default=100,
                help='Extra epochs at the end to ramp up thin-plate loss')
+p.add_argument('--thin_plate_radius', type=float, default=0.05,
+               help='Radius for thin-plate mask falloff (<=0 for auto)')
+p.add_argument('--thin_plate_sigma', type=float, default=None,
+               help='Sigma for thin-plate Gaussian falloff (default: radius/2)')
+p.add_argument('--thin_plate_radius_factor', type=float, default=3.0,
+               help='Auto radius factor times mean nearest deform distance')
+p.add_argument('--thin_plate_radius_samples', type=int, default=1024,
+               help='Max deform samples for auto radius estimation')
+p.add_argument('--smooth_normal_weight', type=float, default=0.0,
+               help='Weight for deform-only normal smoothness loss')
+p.add_argument('--smooth_normal_k', type=int, default=16,
+               help='kNN size for normal smoothness')
+p.add_argument('--smooth_normal_radius', type=float, default=None,
+               help='Optional radius cutoff for normal smoothness (same units as coords)')
+p.add_argument('--smooth_normal_use_projection', action='store_true',
+               help='Project editable points to sdf=0 before smoothing')
+p.add_argument('--smooth_normal_feat_sigma', type=float, default=None,
+               help='Feature protection sigma based on GT normal variation')
+p.add_argument('--smooth_normal_max_points', type=int, default=2048,
+               help='Max editable points used for smoothness per batch')
+p.add_argument('--smooth_normal_ramp_epochs', type=int, default=0,
+               help='Ramp epochs for smoothness weight after base epochs')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
@@ -79,7 +101,16 @@ if device.type != 'cuda':
     raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
+sdf_dataset = dataio_with_weights.PointCloud(
+    opt.point_cloud_path,
+    on_surface_points=opt.batch_size,
+    negative_sample_path=opt.negative_path,
+    inner_ratio=0.15,
+    thin_plate_radius=opt.thin_plate_radius,
+    thin_plate_sigma=opt.thin_plate_sigma,
+    thin_plate_radius_factor=opt.thin_plate_radius_factor,
+    thin_plate_radius_samples=opt.thin_plate_radius_samples,
+)
 # dataloader = DataLoader(
 #     sdf_dataset,
 #     shuffle=True,
@@ -122,7 +153,13 @@ loss_fn = partial(
     inter_weight=opt.inter_weight,
     normal_weight=opt.normal_weight,
     grad_weight=opt.grad_weight,
-    thin_plate_weight=opt.thin_plate_weight
+    thin_plate_weight=opt.thin_plate_weight,
+    smooth_normal_weight=opt.smooth_normal_weight,
+    smooth_normal_k=opt.smooth_normal_k,
+    smooth_normal_radius=opt.smooth_normal_radius,
+    smooth_normal_use_projection=opt.smooth_normal_use_projection,
+    smooth_normal_feat_sigma=opt.smooth_normal_feat_sigma,
+    smooth_normal_max_points=opt.smooth_normal_max_points,
 )
 summary_fn = utils.write_sdf_summary
 
@@ -147,6 +184,18 @@ total_epochs = opt.num_epochs
 if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
     loss_schedules = {'thin_plate': thin_plate_schedule}
     total_epochs += opt.thin_plate_epochs
+if opt.smooth_normal_weight > 0.0 and opt.smooth_normal_ramp_epochs > 0:
+    smooth_steps = max(opt.smooth_normal_ramp_epochs * steps_per_epoch, 1)
+    smooth_start = opt.num_epochs * steps_per_epoch
+
+    def smooth_normal_schedule(step):
+        if step < smooth_start:
+            return 0.0
+        return min((step - smooth_start) / smooth_steps, 1.0)
+
+    loss_schedules = loss_schedules or {}
+    loss_schedules['smooth_normal'] = smooth_normal_schedule
+    total_epochs += opt.smooth_normal_ramp_epochs
 
 training.train(model=model, train_dataloader=dataloader, epochs=total_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,

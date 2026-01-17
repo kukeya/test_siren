@@ -4,7 +4,19 @@ import torch
 import os
 
 class PointCloud(Dataset):
-    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True, negative_sample_path=None, inner_ratio=0.15, device='cuda'):
+    def __init__(
+        self,
+        pointcloud_path,
+        on_surface_points,
+        keep_aspect_ratio=True,
+        negative_sample_path=None,
+        inner_ratio=0.15,
+        device='cuda',
+        thin_plate_radius=0.05,
+        thin_plate_sigma=None,
+        thin_plate_radius_factor=3.0,
+        thin_plate_radius_samples=1024,
+    ):
         super().__init__()
         
         self.device = torch.device(device)
@@ -34,6 +46,30 @@ class PointCloud(Dataset):
 
         self.inner_ratio = inner_ratio
         self.on_surface_points = int(on_surface_points)
+        self.deform_coords = self.coords.index_select(0, self.inner_indices) if self.inner_indices.numel() > 0 else None
+        self.thin_plate_radius = float(thin_plate_radius) if thin_plate_radius is not None else None
+        if self.thin_plate_radius is None or self.thin_plate_radius <= 0.0:
+            self.thin_plate_radius = self._estimate_thin_plate_radius(
+                factor=thin_plate_radius_factor,
+                max_samples=thin_plate_radius_samples,
+            )
+        if thin_plate_sigma is None and self.thin_plate_radius is not None:
+            thin_plate_sigma = self.thin_plate_radius / 2.0
+        self.thin_plate_sigma = float(thin_plate_sigma) if thin_plate_sigma is not None else None
+
+    def _estimate_thin_plate_radius(self, factor=3.0, max_samples=1024):
+        if self.deform_coords is None or self.deform_coords.shape[0] < 2:
+            return 0.05
+        sample_n = min(int(max_samples), self.deform_coords.shape[0])
+        perm = torch.randperm(self.deform_coords.shape[0], device=self.device)[:sample_n]
+        sample = self.deform_coords.index_select(0, perm)
+        dist = torch.cdist(sample, self.deform_coords)
+        dist = torch.where(dist < 1e-8, torch.full_like(dist, float("inf")), dist)
+        min_dist = dist.min(dim=1).values
+        mean_min = min_dist[torch.isfinite(min_dist)].mean().item()
+        if not np.isfinite(mean_min) or mean_min <= 0.0:
+            return 0.05
+        return factor * mean_min
 
     def __len__(self):
         return max(1, self.coords.shape[0] // self.on_surface_points)
@@ -68,7 +104,17 @@ class PointCloud(Dataset):
         off_coords = torch.empty((off_n, 3), dtype=torch.float32, device=self.device).uniform_(-1.0, 1.0)
         off_normals = torch.full((off_n, 3), -1.0, dtype=torch.float32, device=self.device)
         off_is_def = torch.zeros((off_n, 1), dtype=torch.int32, device=self.device)
-        on_thin_plate_mask = on_is_def.float()
+        if self.deform_coords is not None and self.thin_plate_sigma is not None:
+            dist_min = torch.cdist(on_coords, self.deform_coords).min(dim=1).values
+            on_thin_plate_mask = torch.exp(-0.5 * (dist_min / self.thin_plate_sigma) ** 2).unsqueeze(-1)
+            if self.thin_plate_radius is not None:
+                on_thin_plate_mask = torch.where(
+                    dist_min.unsqueeze(-1) <= self.thin_plate_radius,
+                    on_thin_plate_mask,
+                    torch.zeros_like(on_thin_plate_mask),
+                )
+        else:
+            on_thin_plate_mask = on_is_def.float()
         global_thin_plate_mask = torch.zeros((off_n, 1), dtype=torch.float32, device=self.device)
 
         # 拼接（全在 GPU 上）

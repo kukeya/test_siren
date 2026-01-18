@@ -170,6 +170,19 @@ if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0 and opt.enable_thin
         dst = os.path.join(stage1_dir, item)
         if os.path.exists(src):
             shutil.move(src, dst)
+
+    loss_fn_thin1 = partial(
+        loss_module.sdf,
+        sdf_weight=opt.sdf_weight,
+        inter_weight=opt.inter_weight,
+        normal_weight=opt.normal_weight,
+        grad_weight=opt.grad_weight,
+        thin_plate_weight=0
+    )
+    training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
+                   steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
+                   model_dir=root_path, loss_fn=loss_fn_thin1, summary_fn=summary_fn, double_precision=False,
+                   clip_grad=True, use_lr_decay=True, loss_schedules=None)
     
     loss_fn_thin = partial(
         loss_module.sdf,
@@ -179,10 +192,12 @@ if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0 and opt.enable_thin
         grad_weight=opt.grad_weight,
         thin_plate_weight=opt.thin_plate_weight
     )
+    # 重制学习率
+    opt.lr = 1e-4
     print(f"[Train] Thin-plate fine-tune: {opt.thin_plate_epochs} epochs, weight={opt.thin_plate_weight}")
     
     # 使用子目录，避免删除第一阶段的文件
     training.train(model=model, train_dataloader=dataloader, epochs=opt.thin_plate_epochs, lr=opt.lr,
                    steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                    model_dir=root_path, loss_fn=loss_fn_thin, summary_fn=summary_fn, double_precision=False,
-                   clip_grad=True, use_lr_decay=True, loss_schedules=None)
+                   clip_grad=True, use_lr_decay=False, loss_schedules=None)

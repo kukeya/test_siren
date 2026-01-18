@@ -37,15 +37,8 @@ class PointCloud(Dataset):
         else:
             is_anchor_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
 
-        if point_cloud.shape[1] > 8:
-            is_fixed_np = point_cloud[:, 8:9].astype(np.int32)
-            print(f"检测到 fixed 标记列, {is_fixed_np.shape[0]} 个点")
-        else:
-            is_fixed_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
-
         self.is_deform = torch.from_numpy(is_def_np).to(self.device)    # [N,1] int32
         self.is_anchor = torch.from_numpy(is_anchor_np).to(self.device) # [N,1] int32
-        self.is_fixed = torch.from_numpy(is_fixed_np).to(self.device)   # [N,1] int32
 
         self.is_anchor = torch.where(self.is_deform == 1, self.is_anchor, torch.zeros_like(self.is_anchor))
 
@@ -103,7 +96,6 @@ class PointCloud(Dataset):
         on_normals = self.normals.index_select(0, sel)
         on_is_def = self.is_deform.index_select(0, sel).to(torch.int32)
         on_is_anchor = self.is_anchor.index_select(0, sel).to(torch.int32)
-        on_is_fixed = self.is_fixed.index_select(0, sel).to(torch.int32)
         
         # Off-surface 采样（直接在 GPU 上生成）
         off_n = self.on_surface_points
@@ -134,11 +126,11 @@ class PointCloud(Dataset):
                     torch.zeros_like(anchor_decay),
                 )
             on_thin_plate_mask = on_thin_plate_mask * (1.0 - anchor_decay)
-        if on_is_fixed.any():
+        if on_is_def.any():
             on_thin_plate_mask = torch.where(
-                on_is_fixed.bool(),
-                torch.zeros_like(on_thin_plate_mask),
+                on_is_def.bool(),
                 on_thin_plate_mask,
+                torch.zeros_like(on_thin_plate_mask),
             )
         
         # 全局的thin-plate mask

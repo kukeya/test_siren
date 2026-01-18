@@ -8,7 +8,9 @@ class PointCloud(Dataset):
                  inner_ratio=0.15, 
                  device='cuda',
                  thin_plate_radius=0.03,
-                 thin_plate_sigma=None):
+                 thin_plate_sigma=None,
+                 anchor_radius=None,
+                 anchor_sigma=None):
         super().__init__()
         
         self.device = torch.device(device)
@@ -29,7 +31,23 @@ class PointCloud(Dataset):
         else:
             is_def_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
 
+        if point_cloud.shape[1] > 7:
+            is_anchor_np = point_cloud[:, 7:8].astype(np.int32)
+            print(f"检测到 anchor 标记列, {is_anchor_np.shape[0]} 个点")
+        else:
+            is_anchor_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
+
+        if point_cloud.shape[1] > 8:
+            is_fixed_np = point_cloud[:, 8:9].astype(np.int32)
+            print(f"检测到 fixed 标记列, {is_fixed_np.shape[0]} 个点")
+        else:
+            is_fixed_np = np.zeros((coords_np.shape[0], 1), dtype=np.int32)
+
         self.is_deform = torch.from_numpy(is_def_np).to(self.device)    # [N,1] int32
+        self.is_anchor = torch.from_numpy(is_anchor_np).to(self.device) # [N,1] int32
+        self.is_fixed = torch.from_numpy(is_fixed_np).to(self.device)   # [N,1] int32
+
+        self.is_anchor = torch.where(self.is_deform == 1, self.is_anchor, torch.zeros_like(self.is_anchor))
 
         # 预先分离索引（GPU 张量）
         self.inner_indices = torch.nonzero(self.is_deform.view(-1) == 1, as_tuple=False).view(-1)
@@ -41,10 +59,21 @@ class PointCloud(Dataset):
 
         # 新增
         self.deform_coords = self.coords.index_select(0, self.inner_indices) if self.inner_indices.numel() > 0 else None
+        self.anchor_indices = torch.nonzero(self.is_anchor.view(-1) == 1, as_tuple=False).view(-1)
+        self.anchor_coords = self.coords.index_select(0, self.anchor_indices) if self.anchor_indices.numel() > 0 else None
         self.thin_plate_radius = float(thin_plate_radius) if thin_plate_radius is not None else None
         if thin_plate_sigma is None and self.thin_plate_radius is not None:
             thin_plate_sigma = self.thin_plate_radius / 2.0
         self.thin_plate_sigma = float(thin_plate_sigma) if thin_plate_sigma is not None else None
+        if anchor_radius is None:
+            anchor_radius = self.thin_plate_radius
+        if anchor_sigma is None:
+            if anchor_radius is not None:
+                anchor_sigma = anchor_radius / 2.0
+            else:
+                anchor_sigma = self.thin_plate_sigma
+        self.anchor_radius = float(anchor_radius) if anchor_radius is not None else None
+        self.anchor_sigma = float(anchor_sigma) if anchor_sigma is not None else None
 
     def __len__(self):
         return max(1, self.coords.shape[0] // self.on_surface_points)
@@ -73,6 +102,8 @@ class PointCloud(Dataset):
         on_coords = self.coords.index_select(0, sel)
         on_normals = self.normals.index_select(0, sel)
         on_is_def = self.is_deform.index_select(0, sel).to(torch.int32)
+        on_is_anchor = self.is_anchor.index_select(0, sel).to(torch.int32)
+        on_is_fixed = self.is_fixed.index_select(0, sel).to(torch.int32)
         
         # Off-surface 采样（直接在 GPU 上生成）
         off_n = self.on_surface_points
@@ -92,6 +123,23 @@ class PointCloud(Dataset):
                 )
         else:
             on_thin_plate_mask = on_is_def.float()
+
+        if self.anchor_coords is not None and self.anchor_sigma is not None:
+            anchor_dist = torch.cdist(on_coords, self.anchor_coords).min(dim=1).values
+            anchor_decay = torch.exp(-0.5 * (anchor_dist / self.anchor_sigma) ** 2).unsqueeze(-1)
+            if self.anchor_radius is not None:
+                anchor_decay = torch.where(
+                    anchor_dist.unsqueeze(-1) <= self.anchor_radius,
+                    anchor_decay,
+                    torch.zeros_like(anchor_decay),
+                )
+            on_thin_plate_mask = on_thin_plate_mask * (1.0 - anchor_decay)
+        if on_is_fixed.any():
+            on_thin_plate_mask = torch.where(
+                on_is_fixed.bool(),
+                torch.zeros_like(on_thin_plate_mask),
+                on_thin_plate_mask,
+            )
         
         # 全局的thin-plate mask
         # on_thin_plate_mask = torch.ones((on_coords.shape[0], 1), dtype=torch.float32, device=self.device)

@@ -52,6 +52,14 @@ p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikona
 p.add_argument('--thin_plate_weight', type=float, default=0.0, help='Weight for thin-plate bending loss')
 p.add_argument('--thin_plate_epochs', type=int, default=100,
                help='Extra epochs at the end to ramp up thin-plate loss')
+p.add_argument('--thin_plate_radius', type=float, default=0.03,
+               help='Spatial radius for thin-plate smoothing mask (deform influence)')
+p.add_argument('--thin_plate_sigma', type=float, default=None,
+               help='Gaussian sigma for thin-plate smoothing mask')
+p.add_argument('--anchor_radius', type=float, default=None,
+               help='Anchor falloff radius to suppress thin-plate smoothing')
+p.add_argument('--anchor_sigma', type=float, default=None,
+               help='Anchor falloff sigma to suppress thin-plate smoothing')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
 p.add_argument('--num_hidden_layers', type=int, default=3, help='Number of hidden layers in the model')
@@ -82,7 +90,16 @@ if device.type != 'cuda':
     raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
+sdf_dataset = dataio_with_weights.PointCloud(
+    opt.point_cloud_path,
+    on_surface_points=opt.batch_size,
+    negative_sample_path=opt.negative_path,
+    inner_ratio=0.15,
+    thin_plate_radius=opt.thin_plate_radius,
+    thin_plate_sigma=opt.thin_plate_sigma,
+    anchor_radius=opt.anchor_radius,
+    anchor_sigma=opt.anchor_sigma,
+)
 # dataloader = DataLoader(
 #     sdf_dataset,
 #     shuffle=True,

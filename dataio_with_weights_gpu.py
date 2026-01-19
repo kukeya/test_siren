@@ -40,11 +40,11 @@ class PointCloud(Dataset):
         self.on_surface_points = int(on_surface_points)
 
         # 新增
-        self.deform_coords = self.coords.index_select(0, self.inner_indices) if self.inner_indices.numel() > 0 else None
-        self.thin_plate_radius = float(thin_plate_radius) if thin_plate_radius is not None else None
-        if thin_plate_sigma is None and self.thin_plate_radius is not None:
-            thin_plate_sigma = self.thin_plate_radius / 2.0
-        self.thin_plate_sigma = float(thin_plate_sigma) if thin_plate_sigma is not None else None
+        # self.deform_coords = self.coords.index_select(0, self.inner_indices) if self.inner_indices.numel() > 0 else None
+        # self.thin_plate_radius = float(thin_plate_radius) if thin_plate_radius is not None else None
+        # if thin_plate_sigma is None and self.thin_plate_radius is not None:
+        #     thin_plate_sigma = self.thin_plate_radius / 2.0
+        # self.thin_plate_sigma = float(thin_plate_sigma) if thin_plate_sigma is not None else None
 
     def __len__(self):
         return max(1, self.coords.shape[0] // self.on_surface_points)

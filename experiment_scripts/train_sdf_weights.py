@@ -153,10 +153,7 @@ print(f"--------------------------------------------------")
 #     total_epochs += opt.thin_plate_epochs
 
 # stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
-training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
-               steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
-               model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True, use_lr_decay=True, loss_schedules=None)
+
 
 # tsp 小 epochs 额外训练
 if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
@@ -186,3 +183,8 @@ if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
                    steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                    model_dir=root_path, loss_fn=loss_fn_thin, summary_fn=summary_fn, double_precision=False,
                    clip_grad=True, use_lr_decay=True, loss_schedules=None)
+else:
+    training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=1e-4,
+               steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
+               model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
+               clip_grad=True, use_lr_decay=True, loss_schedules=None)

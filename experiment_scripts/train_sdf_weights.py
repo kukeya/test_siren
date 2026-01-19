@@ -25,7 +25,7 @@ p.add_argument('--experiment_name', type=str, default='exp2',
 
 # General training options
 p.add_argument('--batch_size', type=int, default=15000)
-p.add_argument('--lr', type=float, default=1e-4, help='learning rate. default=5e-5')
+p.add_argument('--lr', type=float, default=2e-5, help='learning rate. default=5e-5')
 p.add_argument('--num_epochs', type=int, default=3000,
                help='Number of epochs to train for.')
 
@@ -159,7 +159,7 @@ training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, 
                clip_grad=True, use_lr_decay=True, loss_schedules=None)
 
 # tsp 小 epochs 额外训练
-if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0 and opt.enable_thin_plate:
+if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
 
     # 先把 checkpoints 和 summaries 移动到子目录，避免覆盖
     stage1_dir = os.path.join(root_path, 'stage1_checkpoints')

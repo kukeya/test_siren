@@ -65,6 +65,9 @@ def run_siren_step(args):
     if args.enable_thin_plate:
         train_cmd.extend(["--enable_thin_plate"])
 
+    if args.lr is not None:
+        train_cmd.extend(["--lr", str(args.lr)])
+
     print(" ".join(train_cmd))
     
     sys.stdout.flush()
@@ -117,6 +120,7 @@ if __name__ == "__main__":
     parser.add_argument("--thin_plate_weight", type=float, default=5e-3, help="薄板能量正则化权重")
 
     parser.add_argument("--enable_thin_plate", action='store_true', help="薄板能量正则化权重")
+    parser.add_argument("--lr", type=float, default=None)
     
     
     args = parser.parse_args()

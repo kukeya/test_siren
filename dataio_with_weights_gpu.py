@@ -8,7 +8,8 @@ class PointCloud(Dataset):
                  inner_ratio=0.15, 
                  device='cuda',
                  thin_plate_radius=0.03,
-                 thin_plate_sigma=None):
+                 thin_plate_sigma=None,
+                 thin_plate_mask_path=None):
         super().__init__()
         
         self.device = torch.device(device)
@@ -38,6 +39,24 @@ class PointCloud(Dataset):
 
         self.inner_ratio = inner_ratio
         self.on_surface_points = int(on_surface_points)
+        self.external_thin_plate_mask = None
+
+        if thin_plate_mask_path:
+            mask_path = os.path.abspath(str(thin_plate_mask_path))
+            if os.path.exists(mask_path):
+                mask_np = np.load(mask_path)
+                mask_np = np.asarray(mask_np).reshape(-1)
+                if mask_np.shape[0] == coords_np.shape[0]:
+                    mask_np = (mask_np > 0).astype(np.float32).reshape(-1, 1)
+                    self.external_thin_plate_mask = torch.from_numpy(mask_np).to(self.device)
+                    print(f"Loaded external thin-plate mask: {mask_path}")
+                else:
+                    print(
+                        f"[Warn] thin-plate mask size mismatch: "
+                        f"mask={mask_np.shape[0]}, points={coords_np.shape[0]}; fallback to is_deform"
+                    )
+            else:
+                print(f"[Warn] thin-plate mask not found: {mask_path}; fallback to is_deform")
 
         # 新增
         # self.deform_coords = self.coords.index_select(0, self.inner_indices) if self.inner_indices.numel() > 0 else None
@@ -79,7 +98,10 @@ class PointCloud(Dataset):
         off_coords = torch.empty((off_n, 3), dtype=torch.float32, device=self.device).uniform_(-1.0, 1.0)
         off_normals = torch.full((off_n, 3), -1.0, dtype=torch.float32, device=self.device)
         off_is_def = torch.zeros((off_n, 1), dtype=torch.int32, device=self.device)
-        on_thin_plate_mask = on_is_def.float()
+        if self.external_thin_plate_mask is not None:
+            on_thin_plate_mask = self.external_thin_plate_mask.index_select(0, sel).float()
+        else:
+            on_thin_plate_mask = on_is_def.float()
         # 新增
         # if self.deform_coords is not None and self.thin_plate_sigma is not None:
         #     dist_min = torch.cdist(on_coords, self.deform_coords).min(dim=1).values

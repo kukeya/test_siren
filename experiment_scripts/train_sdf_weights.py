@@ -24,7 +24,8 @@ p.add_argument('--experiment_name', type=str, default='exp2',
                help='Name of subdirectory in logging_root where summaries and checkpoints will be saved.')
 
 # General training options
-p.add_argument('--batch_size', type=int, default=15000)
+p.add_argument('--batch_size', type=int, default=30000)
+# p.add_argument('--batch_size', type=int, default=15000)
 p.add_argument('--lr', type=float, default=2e-5, help='learning rate. default=5e-5')
 p.add_argument('--num_epochs', type=int, default=3000,
                help='Number of epochs to train for.')
@@ -50,7 +51,7 @@ p.add_argument('--inter_weight', type=float, default=1e2, help='Weight for inter
 p.add_argument('--normal_weight', type=float, default=1e2, help='Weight for normal loss')
 p.add_argument('--grad_weight', type=float, default=5e1, help='Weight for eikonal gradient loss')
 p.add_argument('--thin_plate_weight', type=float, default=0.0, help='Weight for thin-plate bending loss')
-p.add_argument('--thin_plate_epochs', type=int, default=100,
+p.add_argument('--thin_plate_epochs', type=int, default=500,
                help='Extra epochs at the end to ramp up thin-plate loss')
 
 p.add_argument('--hidden_features', type=int, default=256, help='Number of hidden features in the model')
@@ -59,6 +60,8 @@ p.add_argument('--log_dir', type=str, default='', help='Direct path to save logs
 p.add_argument('--use_lr_decay', action='store_true', help='Use learning rate decay during training')
 p.add_argument('--enable_thin_plate', action='store_true', 
                help='Enable thin-plate smoothing for this training run')
+p.add_argument('--thin_plate_mask', type=str, default='',
+               help='Optional .npy per-point thin-plate mask aligned with point_cloud_path.')
 
 # [新增] 选择损失版本：默认 L1，可显式 --L2
 loss_group = p.add_mutually_exclusive_group()
@@ -82,7 +85,13 @@ if device.type != 'cuda':
     raise RuntimeError('需要可用的 CUDA 设备来训练权重模型。')
 
 # [修改] 传入 negative_sample_path
-sdf_dataset = dataio_with_weights.PointCloud(opt.point_cloud_path, on_surface_points=opt.batch_size, negative_sample_path=opt.negative_path, inner_ratio=0.15)
+sdf_dataset = dataio_with_weights.PointCloud(
+    opt.point_cloud_path,
+    on_surface_points=opt.batch_size,
+    negative_sample_path=opt.negative_path,
+    inner_ratio=0.15,
+    thin_plate_mask_path=(opt.thin_plate_mask if opt.thin_plate_mask else None),
+)
 # dataloader = DataLoader(
 #     sdf_dataset,
 #     shuffle=True,
@@ -156,7 +165,7 @@ print(f"--------------------------------------------------")
 
 
 # tsp 小 epochs 额外训练
-if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
+if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0 and opt.enable_thin_plate:
 
     # 先把 checkpoints 和 summaries 移动到子目录，避免覆盖
     stage1_dir = os.path.join(root_path, 'stage1_checkpoints')
@@ -182,9 +191,9 @@ if opt.thin_plate_weight > 0.0 and opt.thin_plate_epochs > 0:
     training.train(model=model, train_dataloader=dataloader, epochs=opt.thin_plate_epochs, lr=opt.lr,
                    steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                    model_dir=root_path, loss_fn=loss_fn_thin, summary_fn=summary_fn, double_precision=False,
-                   clip_grad=True, use_lr_decay=False, loss_schedules=None)
+                   clip_grad=True, use_lr_decay=True, loss_schedules=None)
 else:
-    training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=1e-4,
+    training.train(model=model, train_dataloader=dataloader, epochs=opt.num_epochs, lr=opt.lr,
                steps_til_summary=opt.steps_til_summary, epochs_til_checkpoint=opt.epochs_til_ckpt,
                model_dir=root_path, loss_fn=loss_fn, summary_fn=summary_fn, double_precision=False,
-               clip_grad=True, use_lr_decay=False, loss_schedules=None)
+               clip_grad=True, use_lr_decay=True, loss_schedules=None)

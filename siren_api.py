@@ -58,12 +58,14 @@ def run_siren_step(args):
     if prev_ckpt and prev_ckpt.exists():
         train_cmd.extend(["--checkpoint_path", str(prev_ckpt)])
 
-    if args.thin_plate_epochs and args.thin_plate_weight:
-        train_cmd.extend(["--thin_plate_epochs", str(args.thin_plate_epochs)])
-        train_cmd.extend(["--thin_plate_weight", str(args.thin_plate_weight)])
-
     if args.enable_thin_plate:
+        if args.thin_plate_epochs and args.thin_plate_weight:
+            train_cmd.extend(["--thin_plate_epochs", str(args.thin_plate_epochs)])
+            train_cmd.extend(["--thin_plate_weight", str(args.thin_plate_weight)])
         train_cmd.extend(["--enable_thin_plate"])
+
+    if args.thin_plate_mask:
+        train_cmd.extend(["--thin_plate_mask", str(Path(args.thin_plate_mask).absolute())])
 
     if args.lr is not None:
         train_cmd.extend(["--lr", str(args.lr)])
@@ -95,6 +97,11 @@ def run_siren_step(args):
         "--output_ply", str(output_ply),
         "--experiment_name", "meshing"
     ]
+    mesh_max_batch = os.environ.get("SIREN_MESH_MAX_BATCH", "").strip()
+    if mesh_max_batch:
+        test_cmd.extend(["--max_batch", mesh_max_batch])
+    if os.environ.get("SIREN_MESH_AMP", "0").lower() in ("1", "true", "yes", "on"):
+        test_cmd.append("--mesh_amp")
     
     print("\n[SirenAPI] Running Meshing...")
     # 打印cmd
@@ -116,10 +123,11 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--epochs", type=int, default=1500)
     parser.add_argument('--L2', action='store_true', help='Use loss_function.loss_functionsL2 (L2)')
-    parser.add_argument("--thin_plate_epochs", type=int, default=100, help="薄板能量正则化训练 Epochs (0 表示不使用)")
+    parser.add_argument("--thin_plate_epochs", type=int, default=500, help="薄板能量正则化训练 Epochs (0 表示不使用)")
     parser.add_argument("--thin_plate_weight", type=float, default=5e-3, help="薄板能量正则化权重")
 
     parser.add_argument("--enable_thin_plate", action='store_true', help="薄板能量正则化权重")
+    parser.add_argument("--thin_plate_mask", type=str, default="", help="Optional per-point thin-plate mask path (.npy)")
     parser.add_argument("--lr", type=float, default=None)
     
     

@@ -11,7 +11,13 @@ import torch
 
 
 def create_mesh(
-    decoder, filename, N=256, max_batch=64 ** 3, offset=None, scale=None
+    decoder,
+    filename,
+    N=256,
+    max_batch=64 ** 3,
+    offset=None,
+    scale=None,
+    use_amp=False,
 ):
     start = time.time()
     ply_filename = filename
@@ -31,8 +37,8 @@ def create_mesh(
     # transform first 3 columns
     # to be the x, y, z index
     samples[:, 2] = overall_index % N
-    samples[:, 1] = (overall_index.long() / N) % N
-    samples[:, 0] = ((overall_index.long() / N) / N) % N
+    samples[:, 1] = ((overall_index.long() // N) % N).to(samples.dtype)
+    samples[:, 0] = ((overall_index.long() // (N * N)) % N).to(samples.dtype)
 
     # transform first 3 columns
     # to be the x, y, z coordinate
@@ -43,34 +49,28 @@ def create_mesh(
     num_samples = N ** 3
 
     samples.requires_grad = False
+    in_bounds_mask = (samples[:, 0:3].abs() <= 1.0).all(dim=1)
 
     head = 0
 
-    while head < num_samples:
-        # print(head)
-        sample_subset = samples[head : min(head + max_batch, num_samples), 0:3].cuda()
+    with torch.inference_mode():
+        while head < num_samples:
+            tail = min(head + max_batch, num_samples)
+            batch_coords = samples[head:tail, 0:3]
+            batch_in_bounds = in_bounds_mask[head:tail]
+            batch_sdf = torch.ones((tail - head,), dtype=torch.float32)
 
-        sdf_output = (
-            decoder(sample_subset)
-            .squeeze()
-            .detach()
-            .cpu()
-        )
+            if torch.any(batch_in_bounds):
+                sample_subset = batch_coords[batch_in_bounds].cuda(non_blocking=True)
+                if use_amp:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred = decoder(sample_subset).squeeze(-1)
+                else:
+                    pred = decoder(sample_subset).squeeze(-1)
+                batch_sdf[batch_in_bounds] = pred.detach().float().cpu()
 
-        coords = samples[head : min(head + max_batch, num_samples), 0:3].cpu()
-        out_of_bounds = (coords.abs() > 1.0).any(dim=1)
-        sdf_output[out_of_bounds] = 1.0
-        samples[head : min(head + max_batch, num_samples), 3] = sdf_output
-
-
-        # samples[head : min(head + max_batch, num_samples), 3] = (
-        #     decoder(sample_subset)
-        #     .squeeze()#.squeeze(1)
-        #     .detach()
-        #     .cpu()
-        # )
-
-        head += max_batch
+            samples[head:tail, 3] = batch_sdf
+            head = tail
 
     sdf_values = samples[:, 3]
     sdf_values = sdf_values.reshape(N, N, N)
@@ -111,6 +111,7 @@ def convert_sdf_samples_to_ply(
 
     numpy_3d_sdf_tensor = pytorch_3d_sdf_tensor.numpy()
 
+    mc_start = time.time()
     verts, faces, normals, values = np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0, 3)), np.zeros(0)
     try:
         verts, faces, normals, values = skimage.measure.marching_cubes(
@@ -118,6 +119,7 @@ def convert_sdf_samples_to_ply(
         )
     except:
         pass
+    print("marching_cubes takes: %f" % (time.time() - mc_start))
 
     # transform from voxel coordinates to camera coordinates
     # note x and y are flipped in the output of marching_cubes
@@ -137,15 +139,15 @@ def convert_sdf_samples_to_ply(
     num_verts = verts.shape[0]
     num_faces = faces.shape[0]
 
-    verts_tuple = np.zeros((num_verts,), dtype=[("x", "f4"), ("y", "f4"), ("z", "f4")])
+    verts_tuple = np.empty((num_verts,), dtype=[("x", "f4"), ("y", "f4"), ("z", "f4")])
+    if num_verts > 0:
+        verts_tuple["x"] = mesh_points[:, 0].astype(np.float32, copy=False)
+        verts_tuple["y"] = mesh_points[:, 1].astype(np.float32, copy=False)
+        verts_tuple["z"] = mesh_points[:, 2].astype(np.float32, copy=False)
 
-    for i in range(0, num_verts):
-        verts_tuple[i] = tuple(mesh_points[i, :])
-
-    faces_building = []
-    for i in range(0, num_faces):
-        faces_building.append(((faces[i, :].tolist(),)))
-    faces_tuple = np.array(faces_building, dtype=[("vertex_indices", "i4", (3,))])
+    faces_tuple = np.empty((num_faces,), dtype=[("vertex_indices", "i4", (3,))])
+    if num_faces > 0:
+        faces_tuple["vertex_indices"] = faces.astype(np.int32, copy=False)
 
     el_verts = plyfile.PlyElement.describe(verts_tuple, "vertex")
     el_faces = plyfile.PlyElement.describe(faces_tuple, "face")
@@ -153,6 +155,7 @@ def convert_sdf_samples_to_ply(
     ply_data = plyfile.PlyData([el_verts, el_faces])
     logging.debug("saving mesh to %s" % (ply_filename_out))
     ply_data.write(ply_filename_out)
+    print("ply_write takes: %f" % (time.time() - start_time))
 
     logging.debug(
         "converting to ply format and writing to file took {} s".format(

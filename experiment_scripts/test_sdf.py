@@ -28,6 +28,8 @@ p.add_argument('--mode', type=str, default='mlp',
                help='Options are "mlp" or "nerf"')
 p.add_argument('--resolution', type=int, default=512)
 p.add_argument('--output_ply', type=str, default='', help='Absolute path for the output mesh file')
+p.add_argument('--max_batch', type=int, default=64 ** 3, help='Max query points per meshing batch')
+p.add_argument('--mesh_amp', action='store_true', help='Enable AMP(fp16) for meshing inference')
 
 
 # === 新增：添加网络结构参数 ===
@@ -52,10 +54,16 @@ class SDFDecoder(torch.nn.Module):
                                               hidden_features=opt.hidden_features,
                                               num_hidden_layers=opt.num_hidden_layers)
         
-        self.model.load_state_dict(torch.load(opt.checkpoint_path))
-        self.model.cuda()
+        checkpoint = torch.load(opt.checkpoint_path, map_location='cuda')
+        self.model.load_state_dict(checkpoint)
+        self.model.cuda().eval()
+        # Fast path for mlp inference: avoid SingleBVPNet.forward clone/detach/requires_grad.
+        self._fast_forward = (opt.mode == 'mlp')
 
+    @torch.inference_mode()
     def forward(self, coords):
+        if self._fast_forward:
+            return self.model.net(coords)
         model_in = {'coords': coords}
         return self.model(model_in)['model_out']
 
@@ -73,4 +81,10 @@ else:
     # 保持旧逻辑
     ply_path = os.path.join(root_path, 'test')
 
-sdf_meshing.create_mesh(sdf_decoder, ply_path, N=opt.resolution)
+sdf_meshing.create_mesh(
+    sdf_decoder,
+    ply_path,
+    N=opt.resolution,
+    max_batch=opt.max_batch,
+    use_amp=opt.mesh_amp,
+)

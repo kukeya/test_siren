@@ -21,7 +21,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
     if use_lr_decay:
         # 学习率衰减策略：每经过总 Epoch 数的 1/4，学习率乘以 0.5
         # 例如：总共 2000 epochs，则每 500 epochs 衰减一次
-        ratios = [0.4, 0.7, 0.9] # 调整里程碑，让前期多训练一会儿
+        print("Using learning rate decay. Initial LR: %f" % lr)
+        # ratios = [0.4, 0.7, 0.9]
+        ratios = [0.3, 0.6, 0.8]
         milestones = [int(epochs * r) for r in ratios]
 
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
